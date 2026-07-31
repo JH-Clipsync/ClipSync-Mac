@@ -1,0 +1,213 @@
+import SwiftUI
+import AppKit
+
+// ============================================================
+// ToastView：右上角通知横幅
+// - 短信类 + 提取到验证码 → 显示"复制 xxxxxx"和"全文"按钮
+// - 其他 → 显示单个"复制"按钮
+// - 用 onTapGesture（不是 Button）→ 不激活 App、不带出主窗口
+// ============================================================
+
+struct ToastView: View {
+    let message: SyncMessage
+    let showContent: Bool
+    /// 已提取到的验证码；nil 表示没有
+    let extractedCode: String?
+    let onCopyCode: () -> Void   // 只复制验证码
+    let onCopyAll: () -> Void    // 复制全文/剪贴板整体
+    let onClose: () -> Void
+
+    @State private var codeCopied = false
+    @State private var allCopied = false
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            iconView
+
+            VStack(alignment: .leading, spacing: 4) {
+                titleRow
+                Text(bodyText)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.primary.opacity(0.85))
+                    .lineLimit(3)
+                    .truncationMode(.tail)             // 末尾省略
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    // 让 Text 垂直方向按内容自撑，配合外层容器自适应高度
+                    .fixedSize(horizontal: false, vertical: true)
+                actionRow
+            }
+            // 关键：让 VStack 撑满 HStack 剩余空间，Text 才能拿到宽度并换行
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(width: 380, alignment: .topLeading)
+        .background(
+            VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(.white.opacity(0.08), lineWidth: 0.5)
+        )
+        .shadow(color: .black.opacity(0.20), radius: 20, y: 6)
+    }
+
+    // MARK: - subviews
+
+    private var titleRow: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .lineLimit(1)
+
+            if let phone = extractedPhone {
+                Text(phone)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .padding(.horizontal, 6).padding(.vertical, 1)
+                    .background(
+                        Capsule().fill(Color.primary.opacity(0.08))
+                    )
+            }
+
+            Spacer(minLength: 4)
+            Text(timeString)
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+            Image(systemName: "xmark")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(.secondary)
+                .frame(width: 16, height: 16)
+                .background(Color.primary.opacity(0.08), in: Circle())
+                .contentShape(Circle())
+                .onTapGesture { onClose() }
+        }
+    }
+
+    @ViewBuilder
+    private var actionRow: some View {
+        HStack(spacing: 6) {
+            if let code = extractedCode {
+                pill(title: codeCopied ? "已复制 \(code) ✓" : "复制 \(code)", primary: true) {
+                    onCopyCode()
+                    codeCopied = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { codeCopied = false }
+                }
+                pill(title: allCopied ? "✓" : "全文", primary: false) {
+                    onCopyAll()
+                    allCopied = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { allCopied = false }
+                }
+            } else {
+                pill(title: allCopied ? "已复制 ✓" : "复制", primary: true) {
+                    onCopyAll()
+                    allCopied = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { allCopied = false }
+                }
+            }
+            Spacer()
+        }
+        .padding(.top, 2)
+    }
+
+    /// 胶囊按钮（用 onTapGesture 而非 Button，避免 SwiftUI 自动激活 App）
+    private func pill(title: String, primary: Bool, action: @escaping () -> Void) -> some View {
+        Text(title)
+            .font(.system(size: 12, weight: primary ? .semibold : .medium))
+            .foregroundStyle(primary ? Color.white : Color.primary.opacity(0.9))
+            .padding(.horizontal, 12).padding(.vertical, 5)
+            .background(Capsule().fill(primary ? Color.accentColor : Color.primary.opacity(0.10)))
+            .contentShape(Capsule())
+            .onTapGesture { action() }
+    }
+
+    private var iconView: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(LinearGradient(
+                    colors: [Color(nsColor: .systemBlue), Color(nsColor: .systemIndigo)],
+                    startPoint: .topLeading, endPoint: .bottomTrailing
+                ))
+            Image(systemName: iconName)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.white)
+        }
+        .frame(width: 34, height: 34)
+    }
+
+    // MARK: - content helpers
+
+    private var title: String {
+        switch message.kind {
+        case MessageKind.smsCode: return "短信验证码"
+        case MessageKind.image:   return "剪贴板图片"
+        case MessageKind.share:   return "分享"
+        default:
+            return message.type == MessageType.clipboard ? "剪贴板" : "通知"
+        }
+    }
+
+    private var bodyText: String {
+        if !showContent { return "收到一条新消息" }
+        // 服务端已清洗完（去掉了 【+86xxx】前缀 / [N条] 合并提示），直接展示
+        let raw: String = {
+            if let t = message.payload.text, !t.isEmpty { return t }
+            if let p = message.payload.preview, !p.isEmpty { return p }
+            if let mime = message.payload.mime, mime.hasPrefix("image/") { return "[图片]" }
+            return "新消息"
+        }()
+        // ⚠️ SwiftUI 的 .truncationMode(.tail) 在某些布局下会 bug 性退化为头部截断，
+        // 干脆自己手动做末尾截断，保证一定是"从后面省略"
+        return truncatedTail(raw, maxChars: 80)
+    }
+
+    /// 严格的末尾截断：超过 maxChars 字符就截取前 maxChars 个，再拼上 …
+    private func truncatedTail(_ s: String, maxChars: Int) -> String {
+        if s.count <= maxChars { return s }
+        return String(s.prefix(maxChars)) + "…"
+    }
+
+    /// 发件人：直接用服务端塞进来的 payload.sender（如 15735961954）
+    private var extractedPhone: String? {
+        message.payload.sender
+    }
+
+    private var timeString: String {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm"
+        return f.string(from: message.date)
+    }
+
+    private var iconName: String {
+        switch message.kind {
+        case MessageKind.smsCode: return "message.fill"
+        case MessageKind.image:   return "photo.fill"
+        case MessageKind.share:   return "square.and.arrow.up.fill"
+        default:                  return "doc.on.clipboard"
+        }
+    }
+}
+
+// MARK: - 磨砂玻璃背景
+
+struct VisualEffectBlur: NSViewRepresentable {
+    let material: NSVisualEffectView.Material
+    let blendingMode: NSVisualEffectView.BlendingMode
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let v = NSVisualEffectView()
+        v.material = material
+        v.blendingMode = blendingMode
+        v.state = .active
+        v.isEmphasized = true
+        return v
+    }
+
+    func updateNSView(_ v: NSVisualEffectView, context: Context) {
+        v.material = material
+        v.blendingMode = blendingMode
+    }
+}

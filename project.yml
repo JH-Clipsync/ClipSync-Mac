@@ -1,0 +1,19 @@
+name: ClipSync
+options:
+  deploymentTarget:
+    macOS: "14.0"
+targets:
+  ClipSync:
+    type: application
+    platform: macOS
+    sources:
+      - ClipSync
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jiahui.ClipSyncApp
+        INFOPLIST_FILE: ClipSync/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGNING_ALLOWED: NO
+        ENABLE_HARDENED_RUNTIME: NO
+        SWIFT_VERSION: "5.0"
