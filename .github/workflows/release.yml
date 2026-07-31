@@ -5,6 +5,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      versionName:
+        description: '版本号（如 1.0.0），不填则用 Info.plist 里的原值'
+        required: false
+        default: '1.0.0'
 
 permissions:
   contents: write
