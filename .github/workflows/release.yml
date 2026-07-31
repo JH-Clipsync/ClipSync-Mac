@@ -19,10 +19,16 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: 选择 Xcode（macos-15 默认就是 Xcode 16，可选）
+      - name: 选择 Xcode（macos-15 runner）
         run: |
-          ls /Applications | grep -i xcode
-          xcode-select -s /Applications/Xcode_16.app || xcode-select -s /Applications/Xcode.app
+          # macos-15 runner 默认装的是 Xcode 16 系列，目录命名是 Xcode_16.X.app
+          # 用 sudo 是因为 xcode-select --switch 在新系统需要 root
+          XCODE_PATH="/Applications/Xcode_16.4.app"
+          if [ ! -d "$XCODE_PATH" ]; then
+            XCODE_PATH=$(ls -d /Applications/Xcode_16.*.app | sort -V | tail -n 1)
+          fi
+          echo "选择 Xcode: $XCODE_PATH"
+          sudo xcode-select --switch "$XCODE_PATH"
           xcodebuild -version
           swift --version
 
@@ -91,7 +97,8 @@ jobs:
   release:
     name: 创建 GitHub Release
     needs: build
-    if: startsWith(github.ref, 'refs/tags/')
+    # push tag 或 workflow_dispatch 都建 Release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     runs-on: macos-15
     steps:
       - name: 下载所有构建产物
@@ -100,17 +107,25 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: 读取版本号
+      - name: 确定版本号
         id: ver
         run: |
-          TAG=${GITHUB_REF#refs/tags/v}
-          echo "VERSION=$TAG" >> $GITHUB_OUTPUT
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.versionName }}"
+            if [ -z "$VERSION" ]; then VERSION="0.0.0"; fi
+            echo "RELEASE_TAG=v$VERSION" >> $GITHUB_OUTPUT
+          else
+            TAG=${GITHUB_REF#refs/tags/v}
+            echo "RELEASE_TAG=v$TAG" >> $GITHUB_OUTPUT
+            VERSION=$TAG
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
 
       - name: 发布 Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: 'ClipSync v${{ steps.ver.outputs.VERSION }}'
+          tag_name: ${{ steps.ver.outputs.RELEASE_TAG }}
+          name: 'ClipSync Mac v${{ steps.ver.outputs.VERSION }}'
           generate_release_notes: true
           files: |
             dist/*.zip
