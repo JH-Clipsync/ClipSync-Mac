@@ -187,6 +187,8 @@ jobs:
           LABEL org.opencontainers.image.title="ClipSync macOS 安装包"
           LABEL org.opencontainers.image.description="ClipSync macOS 客户端 dmg/zip（OCI 容器包形式分发，文件在 /app/ 与 /scratch/）"
           LABEL com.clipsync.role="macos-installer"
+          LABEL org.opencontainers.image.source="https://github.com/${{ github.repository }}"
+          LABEL org.opencontainers.image.url="https://github.com/${{ github.repository }}"
           COPY app/ /app/
           COPY scratch/ /scratch/
           EOF
