@@ -34,6 +34,15 @@ final class ToastManager {
         lastSig = sig
         lastTime = Date()
 
+        // 同屏只留一条：新消息直接挤掉旧窗
+        for old in windows {
+            let key = ObjectIdentifier(old)
+            dismissWork[key]?.cancel()
+            dismissWork[key] = nil
+            old.orderOut(nil)
+        }
+        windows.removeAll()
+
         let win = ToastWindow()
 
         // 短信类 → 尝试抽取验证码
@@ -68,10 +77,12 @@ final class ToastManager {
         let hosting = NSHostingView(rootView: content)
         hosting.translatesAutoresizingMaskIntoConstraints = false
         win.contentView = hosting
+        // 先给定初始宽度让 SwiftUI 按 windowWidth 布局，再量高度
+        hosting.frame = NSRect(x: 0, y: 0, width: content.windowWidth, height: 200)
         let size = hosting.fittingSize
-        // 保底最小尺寸，避免 fittingSize 拿到 0
+        // 宽高都跟内容走：窄图出窄弹窗，文本保持 380
         win.setContentSize(NSSize(
-            width:  max(size.width,  380),
+            width:  max(size.width,  content.windowWidth),
             height: max(size.height, 60)
         ))
 

@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 // ============================================================
 // HistoryView：消息历史列表（短信 / 剪贴板）
@@ -31,16 +32,9 @@ struct HistoryView: View {
                     .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
             }
             .listStyle(.inset)
-            .toolbar {
-                ToolbarItem(placement: .navigation) {
-                    Button {
-                        history.clear(filter: filter == .sms ? .sms : .clipboard)
-                    } label: {
-                        Label("清空", systemImage: "trash")
-                    }
-                    .help("清空历史（仅本机）")
-                }
-            }
+            .background(TrashInjector {
+                history.clear(filter: filter == .sms ? .sms : .clipboard)
+            })
         }
     }
 
@@ -57,14 +51,101 @@ struct HistoryView: View {
     }
 }
 
+// MARK: - 清空按钮注入标题栏最右
+
+/// SwiftUI 的 ToolbarItem 在 NavigationSplitView 下会跑到中间，
+/// 这里直接用 AppKit 把"清空"按钮以 titlebar accessory 钉到标题栏最右。
+private struct TrashInjector: NSViewRepresentable {
+    let action: () -> Void
+
+    func makeNSView(context: Context) -> InjectorView {
+        let v = InjectorView()
+        v.action = action
+        return v
+    }
+
+    func updateNSView(_ nsView: InjectorView, context: Context) {
+        nsView.action = action
+    }
+}
+
+private final class InjectorView: NSView {
+    var action: (() -> Void)?
+    private var accessory: NSTitlebarAccessoryViewController?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let win = window else {
+            accessory?.removeFromParent()
+            accessory = nil
+            return
+        }
+        if accessory != nil { return }
+        // 页面切换重建时会新建 Injector，旧的全局实例要先摘掉，避免重复按钮
+        TrashAccessoryController.dropAll()
+        let controller = TrashAccessoryController { [weak self] in
+            self?.action?()
+        }
+        controller.layoutAttribute = .trailing
+        win.addTitlebarAccessoryViewController(controller)
+        accessory = controller
+    }
+
+    override func removeFromSuperview() {
+        accessory?.removeFromParent()
+        accessory = nil
+        super.removeFromSuperview()
+    }
+}
+
+private final class TrashAccessoryController: NSTitlebarAccessoryViewController {
+    private let onTrash: () -> Void
+
+    private static var live: [TrashAccessoryController] = []
+
+    static func dropAll() {
+        for c in live { c.removeFromParent() }
+        live.removeAll()
+    }
+
+    init(onTrash: @escaping () -> Void) {
+        self.onTrash = onTrash
+        super.init(nibName: nil, bundle: nil)
+        TrashAccessoryController.live.append(self)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func loadView() {
+        let base = NSImage(systemSymbolName: "trash", accessibilityDescription: "清空")
+        let img = base?.withSymbolConfiguration(
+            NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+        ) ?? base ?? NSImage()
+        let btn = NSButton(image: img, target: self, action: #selector(tap))
+        btn.bezelStyle = .texturedRounded
+        btn.isBordered = false
+        btn.toolTip = "清空历史（仅本机）"
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 46, height: 30))
+        btn.frame = NSRect(x: 4, y: 2, width: 38, height: 26)
+        btn.autoresizingMask = [.minXMargin, .minYMargin, .maxYMargin]
+        container.addSubview(btn)
+        view = container
+    }
+
+    @objc private func tap() { onTrash() }
+}
+
 // MARK: - 单行
 
 private struct Row: View {
     let message: SyncMessage
     let showContent: Bool
 
+    @EnvironmentObject private var history: HistoryStore
+
     @State private var codeCopied = false
     @State private var allCopied  = false
+    @State private var confirmDelete = false
 
     private var extractedCode: String? {
         guard message.isSms, let text = message.payload.text else { return nil }
@@ -89,14 +170,7 @@ private struct Row: View {
                     Text(timeString).font(.system(size: 11)).foregroundStyle(.secondary)
                 }
 
-                Text(bodyText)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.primary.opacity(0.88))
-                    .lineLimit(4)
-                    .truncationMode(.tail)
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .fixedSize(horizontal: false, vertical: true)
+                rowBodyContent
 
                 HStack(spacing: 6) {
                     if let code = extractedCode {
@@ -131,6 +205,23 @@ private struct Row: View {
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
                     }
+                    Button {
+                        if confirmDelete {
+                            history.remove(id: message.id)
+                        } else {
+                            confirmDelete = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { confirmDelete = false }
+                        }
+                    } label: {
+                        Label(confirmDelete ? "确认删除" : "删除",
+                              systemImage: confirmDelete ? "trash.fill" : "trash")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.white)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
+                    .controlSize(.small)
+                    .help("删除这条记录")
                 }
                 .padding(.top, 2)
             }
@@ -180,6 +271,32 @@ private struct Row: View {
         return String(raw.prefix(120)) + "…"
     }
 
+    @ViewBuilder
+    private var rowBodyContent: some View {
+        if message.content == MessageContent.image,
+           let b64 = message.payload.data,
+           let data = Data(base64Encoded: b64),
+           let img = NSImage(data: data) {
+            Image(nsImage: img)
+                .resizable()
+                .scaledToFit()
+                .frame(maxHeight: 120)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .onTapGesture { ImagePreviewWindows.show(image: img) }
+                .help("点击预览大图")
+        } else {
+            Text(bodyText)
+                .font(.system(size: 12))
+                .foregroundStyle(.primary.opacity(0.88))
+                .lineLimit(4)
+                .truncationMode(.tail)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
     /// 发件人：直接用服务端塞进来的 payload.sender
     private var extractedPhone: String? {
         message.payload.sender
@@ -206,5 +323,165 @@ private struct Row: View {
         pb.setString(s, forType: .string)
         ClipboardMonitor.shared.suppressNext()
         ClipboardMonitor.shared.markSignature("text:\(s.hashValue)")
+    }
+}
+
+// MARK: - 大图预览窗口
+
+/// 点击历史图片缩略图弹出的独立预览窗：
+/// - 默认按原图比例显示（长边适配屏幕后等比缩放，不拉伸）
+/// - 窗口可拖动改变大小，图片始终等比 letterbox 居中
+/// - 提供复制按钮，Esc 关闭
+enum ImagePreviewWindows {
+    static func show(image: NSImage) {
+        // 落盘成临时文件，供"用预览打开"调系统预览 App 使用
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ClipSyncPreview", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        let rep = NSBitmapImageRep(data: image.tiffRepresentation ?? Data())
+        let fileData = rep?.representation(using: .png, properties: [:]) ?? Data()
+        let filePath = tmpDir.appendingPathComponent("preview_\(Int(Date().timeIntervalSince1970)).png").path
+        try? fileData.write(to: URL(fileURLWithPath: filePath))
+
+        let view = ImagePreviewView(image: image, filePath: filePath)
+        let hosting = NSHostingView(rootView: view)
+
+        let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1200, height: 800)
+        // 默认尺寸：宽不小于 640、高按原图但不超屏幕 80%，
+        // 竖长图不再被压成窄条，图片在窗内等比 letterbox 完整显示
+        let w = min(screen.width * 0.8, max(image.size.width, 640))
+        let h = min(screen.height * 0.8, max(image.size.height, 480))
+        // 加上工具栏高度
+        let contentSize = NSSize(width: w, height: h + 46)
+
+        let win = NSWindow(
+            contentRect: NSRect(origin: .zero, size: contentSize),
+            styleMask: [.titled, .closable, .resizable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+        win.title = "图片预览"
+        win.contentView = hosting
+        win.center()
+        win.minSize = NSSize(width: 280, height: 200)
+        win.isReleasedWhenClosed = false
+
+        let accessory = TitlebarAccessoryController {
+            NSWorkspace.shared.open(URL(fileURLWithPath: filePath))
+        }
+        accessory.layoutAttribute = .trailing
+        win.addTitlebarAccessoryViewController(accessory)
+
+        win.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: false)
+    }
+}
+
+/// 标题栏右侧的"用预览打开"按钮
+private final class TitlebarAccessoryController: NSTitlebarAccessoryViewController {
+    private let onOpen: () -> Void
+
+    init(onOpen: @escaping () -> Void) {
+        self.onOpen = onOpen
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func loadView() {
+        let base = NSImage(systemSymbolName: "arrow.up.forward.app", accessibilityDescription: "用预览打开")
+        let img = base?.withSymbolConfiguration(
+            NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+        ) ?? base ?? NSImage()
+        let btn = NSButton(image: img, target: self, action: #selector(tap))
+        btn.bezelStyle = .texturedRounded
+        btn.isBordered = false
+        btn.toolTip = "用预览打开"
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 46, height: 30))
+        btn.frame = NSRect(x: 4, y: 2, width: 38, height: 26)
+        btn.autoresizingMask = [.minXMargin, .minYMargin, .maxYMargin]
+        container.addSubview(btn)
+        view = container
+    }
+
+    @objc private func tap() { onOpen() }
+}
+
+private struct ImagePreviewView: View {
+    let image: NSImage
+    let filePath: String
+
+    var body: some View {
+        VStack(spacing: 0) {
+            GeometryReader { geo in
+                ZStack {
+                    Color.white
+                    Image(nsImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .padding(16)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                }
+            }
+            HStack(spacing: 12) {
+                Text("\(Int(image.size.width)) × \(Int(image.size.height))")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    let pb = NSPasteboard.general
+                    pb.clearContents()
+                    pb.writeObjects([image])
+                    ClipboardMonitor.shared.suppressNext()
+                    ClipboardMonitor.shared.markSignature("img:\(image.size.width)x\(image.size.height)")
+                } label: {
+                    Label("复制", systemImage: "doc.on.doc")
+                }
+                .keyboardShortcut("c", modifiers: .command)
+                Button {
+                    saveImage()
+                } label: {
+                    Label("保存", systemImage: "square.and.arrow.down")
+                }
+                .keyboardShortcut("s", modifiers: .command)
+                Button("关闭") {
+                    NSApp.keyWindow?.close()
+                }
+                .keyboardShortcut(.cancelAction)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(Color(nsColor: .windowBackgroundColor))
+        }
+    }
+
+    private func saveImage() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.png, .jpeg]
+        panel.directoryURL = FileManager.default.urls(
+            for: .downloadsDirectory, in: .userDomainMask
+        ).first
+        let stamp = DateFormatter()
+        stamp.dateFormat = "yyyyMMdd_HHmmss"
+        panel.nameFieldStringValue = "ClipSync_\(stamp.string(from: Date())).png"
+        panel.canCreateDirectories = true
+        panel.begin { resp in
+            guard resp == .OK, let url = panel.url else { return }
+            let rep = NSBitmapImageRep(data: image.tiffRepresentation ?? Data())
+            let ext = url.pathExtension.lowercased()
+            let asJpeg = ext == "jpg" || ext == "jpeg"
+            let data = rep?.representation(
+                using: asJpeg ? .jpeg : .png,
+                properties: asJpeg ? [.compressionFactor: 0.9] : [:]
+            )
+            do {
+                try data?.write(to: url, options: .atomic)
+            } catch {
+                let alert = NSAlert()
+                alert.messageText = "保存失败"
+                alert.informativeText = error.localizedDescription
+                alert.runModal()
+            }
+        }
     }
 }

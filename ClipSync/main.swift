@@ -113,8 +113,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let cfg = NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)
-        let icon = base.withSymbolConfiguration(cfg) ?? base
+        let cfg = NSImage.SymbolConfiguration(pointSize: 17, weight: .medium)
+        let sized = base.withSymbolConfiguration(cfg) ?? base
+        sized.isTemplate = true
+
+        // 切屏/多屏下系统按原像素绘制，SF Symbol 矢量边界可能超出导致裁切。
+        // 重绘成 22pt 固定位图（与相邻菜单栏图标对称），
+        // 图形按自身边界自动居中裁剪，保证任何屏幕密度下都完整显示。
+        let side: CGFloat = 22
+        let icon = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
+            let s = sized.size
+            let fit = min(rect.width / max(s.width, 1), rect.height / max(s.height, 1))
+            let w = s.width * fit
+            let h = s.height * fit
+            sized.draw(
+                in: NSRect(x: (rect.width - w) / 2, y: (rect.height - h) / 2, width: w, height: h),
+                from: .zero,
+                operation: .sourceOver,
+                fraction: 1.0
+            )
+            return true
+        }
         icon.isTemplate = true
 
         btn.image = icon

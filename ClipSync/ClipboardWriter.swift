@@ -14,7 +14,14 @@ enum ClipboardWriter {
            let b64 = payload.data,
            let data = Data(base64Encoded: b64),
            let img = NSImage(data: data) {
-            pb.writeObjects([img])
+            // 转成 PNG 写入剪贴板，确保 peekImage() 能稳定读取
+            if let tiff = img.tiffRepresentation,
+               let rep = NSBitmapImageRep(data: tiff),
+               let png = rep.representation(using: .png, properties: [:]) {
+                pb.setData(png, forType: .png)
+            } else {
+                pb.writeObjects([img])
+            }
             ClipboardMonitor.shared.suppressNext()
             ClipboardMonitor.shared.markSignature("img:\(data.count)")
             NSLog("[Clipboard] ↓ 已写入图片")

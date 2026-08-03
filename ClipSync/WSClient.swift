@@ -93,9 +93,9 @@ final class WSClient: ObservableObject {
         ))
     }
 
-    func sendClipboardImage(base64: String) {
+    func sendClipboardImage(base64: String, mime: String = "image/png") {
         let payload = MessagePayload(
-            text: nil, mime: "image/png", data: base64,
+            text: nil, mime: mime, data: base64,
             preview: "[图片]", kind: MessageKind.image
         )
         send(SyncMessage(

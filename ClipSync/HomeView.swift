@@ -1,10 +1,12 @@
 import SwiftUI
+import AppKit
 
 // ============================================================
-// HomeView：主页 —— 连接状态一览
-// - 大号状态卡（图标 + 状态文字 + 服务器地址）
-// - 快速统计（短信条数 / 剪贴板条数 / 设备 ID）
-// - 最近一条消息预览
+// HomeView：主页 —— 集中式控制台
+// - 顶部：大号连接状态卡（图标 + 状态文字 + 服务器地址）
+// - 中部：服务器/Token 配置（合并自设置页）
+// - 同步开关：自动同步剪贴板 + 接收弹窗
+// - 统计 + 最近消息
 // ============================================================
 
 struct HomeView: View {
@@ -12,212 +14,287 @@ struct HomeView: View {
     @EnvironmentObject var settings: SettingsStore
     @EnvironmentObject var history: HistoryStore
 
+    @State private var revealToken = false
+    @State private var pushToast: String? = nil
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 16) {
                 statusCard
+                serverCard
+                syncCard
                 infoGrid
                 latestSection
                 Spacer(minLength: 0)
             }
-            .padding(24)
+            .padding(20)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
-    // MARK: - 大号状态卡
+    // MARK: - 状态卡
 
     private var statusCard: some View {
-        HStack(alignment: .center, spacing: 20) {
-            // 左侧：状态圆
+        HStack(alignment: .center, spacing: 14) {
             ZStack {
                 Circle()
                     .fill(statusColor.opacity(0.15))
-                    .frame(width: 88, height: 88)
+                    .frame(width: 52, height: 52)
                 Image(systemName: statusIcon)
-                    .font(.system(size: 40, weight: .semibold))
-                    .foregroundStyle(statusColor)
-            }
-
-            // 右侧：状态文字
-            VStack(alignment: .leading, spacing: 6) {
-                Text(statusTitle)
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(statusColor)
-
-                Text(statusDesc)
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                HStack(spacing: 8) {
-                    if ws.state == .disconnected {
-                        Button {
-                            ws.start(server: settings.serverURL, token: settings.token)
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "bolt.horizontal.fill")
-                                Text("立即连接")
-                            }
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.regular)
-                        .disabled(settings.token.isEmpty)
-                    } else if ws.state == .connecting {
-                        HStack(spacing: 6) {
-                            ProgressView().controlSize(.small).scaleEffect(0.75)
-                            Text("正在连接…").font(.system(size: 12))
-                        }
-                    } else {
-                        Button {
-                            ws.stop()
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "xmark.circle")
-                                Text("断开连接")
-                            }
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.regular)
-                    }
-                }
-                .padding(.top, 2)
             }
-            Spacer(minLength: 0)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(statusText)
+                    .font(.system(size: 17, weight: .semibold))
+                Text(settings.serverURL)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer()
+
+            VStack(spacing: 6) {
+                if ws.state == .connecting {
+                    Button {
+                        ws.stop()
+                    } label: {
+                        Label("取消", systemImage: "xmark")
+                            .font(.system(size: 12))
+                            .frame(minWidth: 70)
+                    }
+                    .buttonStyle(.bordered)
+                } else if ws.state == .connected {
+                    Button {
+                        ws.stop()
+                    } label: {
+                        Label("断开", systemImage: "bolt.slash")
+                            .font(.system(size: 12))
+                            .frame(minWidth: 70)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.red)
+                } else {
+                    Button {
+                        ws.start(server: settings.serverURL, token: settings.token)
+                    } label: {
+                        Label("连接", systemImage: "bolt.fill")
+                            .font(.system(size: 12))
+                            .frame(minWidth: 70)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.indigo)
+                    .disabled(settings.token.isEmpty)
+                }
+
+                if let toast = pushToast {
+                    Text(toast)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.green)
+                        .transition(.opacity)
+                }
+            }
         }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
         .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(statusColor.opacity(0.06))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(statusColor.opacity(0.25), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(statusColor.opacity(0.2), lineWidth: 1)
         )
     }
 
-    // MARK: - 信息网格
+    // MARK: - 服务器 / Token 配置
 
-    private var infoGrid: some View {
-        LazyVGrid(columns: [
-            GridItem(.flexible(), spacing: 12),
-            GridItem(.flexible(), spacing: 12)
-        ], spacing: 12) {
-            infoCard(icon: "server.rack",
-                     label: "服务器",
-                     value: settings.serverURL.isEmpty ? "（未设置）" : settings.serverURL,
-                     tint: .blue)
-
-            infoCard(icon: "key.fill",
-                     label: "Token",
-                     value: settings.token.isEmpty ? "（未设置）" : maskToken(settings.token),
-                     tint: .purple,
-                     secret: true)
-
-            infoCard(icon: "desktopcomputer",
-                     label: "设备 ID",
-                     value: ws.deviceID,
-                     tint: .teal,
-                     monospaced: true)
-
-            infoCard(icon: "arrow.left.arrow.right",
-                     label: "自动同步剪贴板",
-                     value: settings.autoSyncClipboard ? "已开启" : "已关闭",
-                     tint: settings.autoSyncClipboard ? .green : .gray)
-
-            infoCard(icon: "message.badge",
-                     label: "短信消息",
-                     value: "\(smsCount) 条",
-                     tint: .orange)
-
-            infoCard(icon: "doc.on.clipboard",
-                     label: "剪贴板消息",
-                     value: "\(clipboardCount) 条",
-                     tint: .pink)
+    private var serverCard: some View {
+        cardSection(title: "服务器", color: .blue) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Image(systemName: "network")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 18)
+                    TextField("服务器地址 (ws://...)", text: $settings.serverURL)
+                        .textFieldStyle(.roundedBorder)
+                }
+                HStack(spacing: 8) {
+                    Image(systemName: "key.fill")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 18)
+                    Group {
+                        if revealToken {
+                            TextField("Token", text: $settings.token)
+                        } else {
+                            SecureField("Token", text: $settings.token)
+                        }
+                    }
+                    .textFieldStyle(.roundedBorder)
+                    Button {
+                        revealToken.toggle()
+                    } label: {
+                        Image(systemName: revealToken ? "eye.slash.fill" : "eye.fill")
+                            .frame(width: 16)
+                    }
+                    .buttonStyle(.borderless)
+                    .help(revealToken ? "隐藏 Token" : "显示 Token")
+                }
+            }
         }
     }
 
-    private func infoCard(icon: String, label: String, value: String,
-                          tint: Color, monospaced: Bool = false,
-                          secret: Bool = false) -> some View {
-        HStack(alignment: .center, spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(tint.opacity(0.15))
-                Image(systemName: icon)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(tint)
-            }
-            .frame(width: 32, height: 32)
+    // MARK: - 同步开关
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(label)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-
-                Group {
-                    if secret {
-                        // Token / 密文：不可选、不可复制
-                        Text(value)
-                            .textSelection(.disabled)
-                    } else {
-                        Text(value)
-                            .textSelection(.enabled)
+    private var syncCard: some View {
+        cardSection(title: "同步", color: .green) {
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle(isOn: $settings.autoSyncClipboard) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "doc.on.clipboard")
+                            .foregroundStyle(.indigo)
+                            .frame(width: 18)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("自动同步剪贴板")
+                                .font(.system(size: 13, weight: .medium))
+                            Text("电脑复制的内容实时推送到手机")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
-                .font(monospaced
-                      ? .system(size: 12, design: .monospaced)
-                      : .system(size: 13, weight: .medium))
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-                .truncationMode(.middle)
+                .toggleStyle(.switch)
+
+                Divider()
+
+                Toggle(isOn: $settings.showContent) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "bell.badge")
+                            .foregroundStyle(.orange)
+                            .frame(width: 18)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("显示消息内容")
+                                .font(.system(size: 13, weight: .medium))
+                            Text("关闭后弹窗只显示占位提示")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .toggleStyle(.switch)
             }
-            Spacer(minLength: 0)
         }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.secondary.opacity(0.06))
-        )
-        // 对密文字段整体禁用 hit-testing 里的文本选择行为
-        .allowsHitTesting(true)
     }
 
-    // MARK: - 最近消息
+    // MARK: - 通用卡片容器
+
+    private func cardSection<Content: View>(
+        title: String,
+        color: Color,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .fill(color)
+                    .frame(width: 4, height: 16)
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.primary)
+            }
+            content()
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.secondary.opacity(0.06))
+        )
+    }
+
+    // MARK: - 状态样式
+
+    private var statusText: String {
+        switch ws.state {
+        case .connected:    return "已连接"
+        case .connecting:   return "连接中…"
+        case .disconnected: return "未连接"
+        }
+    }
+
+    private var statusColor: Color {
+        switch ws.state {
+        case .connected:    return .green
+        case .connecting:   return .orange
+        case .disconnected: return .gray
+        }
+    }
+
+    private var statusIcon: String {
+        switch ws.state {
+        case .connected:    return "checkmark.circle.fill"
+        case .connecting:   return "arrow.triangle.2.circlepath"
+        case .disconnected: return "bolt.slash.fill"
+        }
+    }
+
+    // MARK: - 统计 / 最近消息
+
+    private var infoGrid: some View {
+        HStack(spacing: 10) {
+            statTile(title: "短信", value: "\(history.filtered(.sms).count)", color: .blue, icon: "message.fill")
+            statTile(title: "剪贴板", value: "\(history.filtered(.clipboard).count)", color: .indigo, icon: "doc.on.clipboard")
+        }
+    }
+
+    private func statTile(title: String, value: String, color: Color, icon: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 14))
+                .foregroundStyle(color)
+                .frame(width: 28, height: 28)
+                .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(value)
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                Text(title)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.secondary.opacity(0.05))
+        )
+    }
 
     private var latestSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("最近消息")
-                    .font(.system(size: 13, weight: .semibold))
+            HStack(spacing: 6) {
+                Image(systemName: "clock.arrow.circlepath")
                     .foregroundStyle(.secondary)
-                Spacer()
-                if !history.messages.isEmpty {
-                    Text("共 \(history.messages.count) 条")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.tertiary)
-                }
+                Text("最近消息")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
             }
-
-            if let msg = history.messages.first {
-                latestRow(msg)
+            if let latest = history.allMessages.first {
+                latestRow(latest)
             } else {
-                HStack(spacing: 10) {
-                    Image(systemName: "tray")
-                        .font(.system(size: 20))
-                        .foregroundStyle(.tertiary)
-                    Text("暂无消息，等待手机端推送…")
+                HStack {
+                    Text("暂无消息")
                         .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.tertiary)
                     Spacer()
                 }
-                .padding(14)
-                .frame(maxWidth: .infinity)
+                .padding(10)
                 .background(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color.secondary.opacity(0.06))
+                        .fill(Color.secondary.opacity(0.04))
                 )
             }
         }
@@ -226,27 +303,81 @@ struct HomeView: View {
     private func latestRow(_ msg: SyncMessage) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: msg.isSms ? "message.fill" : "doc.on.clipboard")
-                .font(.system(size: 14))
+                .font(.system(size: 13))
                 .foregroundStyle(.tint)
-                .frame(width: 24)
+                .frame(width: 22)
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Text(msg.isSms ? "短信" : "剪贴板")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 11, weight: .semibold))
                     Spacer()
                     Text(timeString(msg.date))
-                        .font(.system(size: 11))
+                        .font(.system(size: 10))
                         .foregroundStyle(.secondary)
                 }
-                Text(previewText(msg))
-                    .font(.system(size: 12))
-                    .foregroundStyle(.primary.opacity(0.85))
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
+
+                if isImage(msg) {
+                    if let img = imageOf(msg) {
+                        Image(nsImage: img)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxHeight: 120)
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .strokeBorder(Color.black.opacity(0.08), lineWidth: 0.5)
+                            )
+                            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .onTapGesture { ImagePreviewWindows.show(image: img) }
+                            .help("点击预览大图")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        Text(previewText(msg))
+                            .font(.system(size: 11))
+                            .foregroundStyle(.primary.opacity(0.85))
+                    }
+                } else {
+                    Text(previewText(msg))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.primary.opacity(0.85))
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                HStack(spacing: 8) {
+                    if let code = extractedCode(msg) {
+                        Button {
+                            copyText(code)
+                        } label: {
+                            Label("复制 \(code)", systemImage: "number.circle")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                    }
+                    Button {
+                        ClipboardWriter.apply(payload: msg.payload)
+                    } label: {
+                        Label("复制", systemImage: "doc.on.doc")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    if isImage(msg), let img = imageOf(msg) {
+                        Button {
+                            ImagePreviewWindows.show(image: img)
+                        } label: {
+                            Label("预览", systemImage: "eye")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                }
             }
         }
-        .padding(12)
+        .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -254,60 +385,33 @@ struct HomeView: View {
         )
     }
 
-    // MARK: - helpers
-
-    private var statusColor: Color {
-        switch ws.state {
-        case .connected:    return .green
-        case .connecting:   return .orange
-        case .disconnected: return .red
-        }
+    private func isImage(_ msg: SyncMessage) -> Bool {
+        msg.content == MessageContent.image && msg.payload.data != nil
     }
 
-    private var statusIcon: String {
-        switch ws.state {
-        case .connected:    return "bubble.left.and.bubble.right.fill"
-        case .connecting:   return "arrow.triangle.2.circlepath"
-        case .disconnected: return "bubble.left.and.bubble.right"
-        }
+    private func imageOf(_ msg: SyncMessage) -> NSImage? {
+        guard let b64 = msg.payload.data,
+              let data = Data(base64Encoded: b64) else { return nil }
+        return NSImage(data: data)
     }
 
-    private var statusTitle: String {
-        switch ws.state {
-        case .connected:    return "已连接"
-        case .connecting:   return "连接中…"
-        case .disconnected: return "未连接"
-        }
+    private func extractedCode(_ msg: SyncMessage) -> String? {
+        guard msg.isSms, let text = msg.payload.text else { return nil }
+        return SmsCodeExtractor.extract(from: text)
     }
 
-    private var statusDesc: String {
-        switch ws.state {
-        case .connected:
-            return "正在与服务器 \(settings.serverURL) 保持长连接，消息将实时同步。"
-        case .connecting:
-            return "正在与 \(settings.serverURL) 握手，请稍候…"
-        case .disconnected:
-            if settings.token.isEmpty {
-                return "尚未配置 Token。请到「设置」填写服务器地址和 Token 后再连接。"
-            }
-            return "已断开与服务器的连接，可点右边按钮重新连接。"
-        }
-    }
-
-    private var smsCount: Int       { history.smsCount }
-    private var clipboardCount: Int { history.clipboardCount }
-
-    /// Token 完全用 • 遮蔽，不显示前缀后缀（相当于密码）
-    private func maskToken(_ s: String) -> String {
-        let n = min(max(s.count, 4), 12)   // 至少 4 个点，至多 12 个点
-        return String(repeating: "•", count: n)
+    private func copyText(_ s: String) {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(s, forType: .string)
+        ClipboardMonitor.shared.suppressNext()
+        ClipboardMonitor.shared.markSignature("text:\(s.hashValue)")
     }
 
     private func previewText(_ msg: SyncMessage) -> String {
-        if !settings.showContent { return "收到一条新消息" }
         if let t = msg.payload.text, !t.isEmpty { return t }
         if let p = msg.payload.preview, !p.isEmpty { return p }
-        if let mime = msg.payload.mime, mime.hasPrefix("image/") { return "[图片]" }
+        if msg.payload.mime?.hasPrefix("image/") == true { return "[图片]" }
         return "新消息"
     }
 

@@ -101,6 +101,9 @@ final class HistoryStore: ObservableObject {
         }
     }
 
+    /// 全部消息（按时间倒序，最新在前）
+    var allMessages: [SyncMessage] { messages }
+
     var smsCount: Int       { messages.lazy.filter { $0.isSms }.count }
     var clipboardCount: Int { messages.lazy.filter { $0.isClipboard }.count }
 

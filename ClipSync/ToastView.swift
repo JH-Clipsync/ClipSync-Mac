@@ -21,28 +21,35 @@ struct ToastView: View {
     @State private var allCopied = false
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            iconView
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 10) {
+                iconView
 
-            VStack(alignment: .leading, spacing: 4) {
-                titleRow
-                Text(bodyText)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.primary.opacity(0.85))
-                    .lineLimit(3)
-                    .truncationMode(.tail)             // 末尾省略
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    // 让 Text 垂直方向按内容自撑，配合外层容器自适应高度
-                    .fixedSize(horizontal: false, vertical: true)
-                actionRow
+                VStack(alignment: .leading, spacing: 4) {
+                    titleRow
+                    if !isImage {
+                        rowBody
+                        // 文字/短信：始终保留按钮（复制 / 复制验证码+全文）
+                        actionRow
+                    }
+                }
+                // 关键：让 VStack 撑满 HStack 剩余空间，Text 才能拿到宽度并换行
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            // 关键：让 VStack 撑满 HStack 剩余空间，Text 才能拿到宽度并换行
-            .frame(maxWidth: .infinity, alignment: .leading)
+
+            // 图片独占一整行，相对整个窗口左右居中，顶部多留白不挤标题
+            if isImage {
+                rowBody
+                    .padding(.top, 12)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                if extractedCode != nil {
+                    actionRow
+                }
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .frame(width: 380, alignment: .topLeading)
+        .frame(width: windowWidth, alignment: .topLeading)
         .background(
             VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -52,6 +59,35 @@ struct ToastView: View {
                 .strokeBorder(.white.opacity(0.08), lineWidth: 0.5)
         )
         .shadow(color: .black.opacity(0.20), radius: 20, y: 6)
+    }
+
+    private var isImage: Bool {
+        message.content == MessageContent.image && message.payload.data != nil
+    }
+
+    private var decodedImage: NSImage? {
+        guard isImage,
+              let b64 = message.payload.data,
+              let data = Data(base64Encoded: b64) else { return nil }
+        return NSImage(data: data)
+    }
+
+    /// 按图片比例算显示尺寸：长边 260、宽边不超过 320，白卡随之包裹
+    private var imageDisplaySize: CGSize? {
+        guard let img = decodedImage else { return nil }
+        let w = img.size.width
+        let h = img.size.height
+        guard w > 0, h > 0 else { return nil }
+        let scale = min(260 / max(w, h), 320 / w, 1.0)
+        return CGSize(width: w * scale, height: h * scale)
+    }
+
+    /// 弹窗宽度：文字固定 380；图片按显示宽 + 边距
+    var windowWidth: CGFloat {
+        if let s = imageDisplaySize {
+            return max(300, s.width + 20 + 28 + 10 + 28)
+        }
+        return 380
     }
 
     // MARK: - subviews
@@ -139,6 +175,50 @@ struct ToastView: View {
     }
 
     // MARK: - content helpers
+
+    /// 内容区：图片消息用白底卡片按图片实际比例包裹（小图小卡、长图窄卡，
+    /// 不再拉成满宽空白），其余显示文字
+    @ViewBuilder
+    private var rowBody: some View {
+        if let img = decodedImage, let s = imageDisplaySize {
+            VStack(spacing: 6) {
+                Image(nsImage: img)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: s.width, height: s.height)
+                    .padding(10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Color.white)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(Color.black.opacity(0.08), lineWidth: 0.5)
+                    )
+                    .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .onTapGesture { ImagePreviewWindows.show(image: img) }
+                    .help("点击预览大图")
+                HStack {
+                    Spacer()
+                    Text("\(Int(img.size.width)) × \(Int(img.size.height))")
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(width: s.width + 20)
+            }
+            .frame(maxWidth: .infinity, alignment: .center)
+        } else {
+            Text(bodyText)
+                .font(.system(size: 12))
+                .foregroundStyle(.primary.opacity(0.85))
+                .lineLimit(3)
+                .truncationMode(.tail)             // 末尾省略
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                // 让 Text 垂直方向按内容自撑，配合外层容器自适应高度
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
 
     private var title: String {
         switch message.kind {
