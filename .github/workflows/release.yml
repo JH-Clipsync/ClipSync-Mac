@@ -149,8 +149,9 @@ jobs:
   publish-package:
     name: 发布容器包到 GitHub Packages (ghcr.io)
     needs: build
+    # macOS runner 没有 docker CLI，打包推镜像放到 ubuntu runner 做（产物只是文件，跨平台无影响）
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
-    runs-on: macos-15
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
