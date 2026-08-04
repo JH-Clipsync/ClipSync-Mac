@@ -145,13 +145,18 @@ final class ToastManager {
     }
 }
 
-// MARK: - 无边框浮窗（不激活 App）
+// MARK: - 无边框浮窗（点击不激活 App）
 
-final class ToastWindow: NSWindow {
+/// Toast 浮窗。
+///
+/// 必须是 NSPanel 且带 .nonactivatingPanel：这是唯一能让"点击浮窗上的按钮
+/// 不激活本 App"的做法。普通 NSWindow 即使 canBecomeKey=false，点击时系统
+/// 仍会激活所属 App，进而把主窗口一起带到前台，挡住用户正在操作的地方。
+final class ToastWindow: NSPanel {
     convenience init() {
         self.init(
             contentRect: NSRect(x: 0, y: 0, width: 340, height: 100),
-            styleMask: [.borderless],
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
@@ -162,6 +167,9 @@ final class ToastWindow: NSWindow {
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle, .stationary]
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
+        // 浮窗自己不参与激活，也别抢已有的 key 状态
+        isFloatingPanel = true
+        becomesKeyOnlyIfNeeded = true
     }
 
     override var canBecomeKey: Bool { false }

@@ -5,7 +5,9 @@ import AppKit
 // ToastView：右上角通知横幅
 // - 短信类 + 提取到验证码 → 显示"复制 xxxxxx"和"全文"按钮
 // - 其他 → 显示单个"复制"按钮
-// - 用 onTapGesture（不是 Button）→ 不激活 App、不带出主窗口
+// - 用 onTapGesture 而非 Button：Button 会走 AppKit 的按钮响应链并激活 App。
+//   但真正保证"点击不激活、不带出主窗口"的是承载窗口 ToastWindow —— 它必须
+//   是 NSPanel + .nonactivatingPanel（见 ToastManager.swift）。
 // ============================================================
 
 struct ToastView: View {
