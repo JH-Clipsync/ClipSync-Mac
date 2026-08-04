@@ -55,11 +55,12 @@ struct ToastView: View {
         .background(
             ZStack {
                 VisualEffectBlur(
-                    material: .hudWindow,
+                    // .popover 是亮面材质；.hudWindow 底子是深灰，会把整块弹窗压暗
+                    material: .popover,
                     blendingMode: .behindWindow,
                     cornerRadius: ToastStyle.cornerRadius
                 )
-                // 毛玻璃本身是零饱和的纯灰，叠一层冷调把背板也拉进同一色系
+                // 盖一层近白，做出系统通知那种亮底
                 ToastStyle.backdropTint
             }
             .clipShape(RoundedRectangle(cornerRadius: ToastStyle.cornerRadius, style: .continuous))
@@ -183,7 +184,7 @@ struct ToastView: View {
             .overlay(
                 // 次要按钮靠一道极淡描边跟背板分开，不然低透明度底色在毛玻璃上会糊
                 Capsule().strokeBorder(
-                    primary ? Color.clear : ToastStyle.innerBorderColor,
+                    primary ? Color.clear : ToastStyle.secondaryStroke,
                     lineWidth: 0.5
                 )
             )
