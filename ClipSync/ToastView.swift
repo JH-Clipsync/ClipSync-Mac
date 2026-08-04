@@ -192,16 +192,62 @@ struct ToastView: View {
             .onTapGesture { action() }
     }
 
+    /// 左侧图标：跟系统通知一致，主体是本 App 的图标，右下角挂一个表示消息
+    /// 类型的小角标（短信 / 图片 / 分享 / 剪贴板）。
     private var iconView: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(ToastStyle.iconGradient)
-            Image(systemName: iconName)
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(.white)
-        }
-        .frame(width: 34, height: 34)
+        appIconLayer
+            // 角标叠在右下角。用 overlay 而不是放大 ZStack：overlay 不参与布局
+            // 尺寸计算，角标溢出一点也不会被裁，图标本身仍占 34x34。
+            .overlay(alignment: .bottomTrailing) {
+                Image(systemName: iconName)
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(ToastStyle.accentFill)
+                    .frame(width: 15, height: 15)
+                    .background(Circle().fill(Color.white))
+                    .overlay(Circle().strokeBorder(ToastStyle.innerBorderColor, lineWidth: 0.5))
+                    .offset(x: 3, y: 3)
+            }
     }
+
+    /// App 图标本体。取不到就退回符号图标，保证任何情况下都有东西可显示。
+    @ViewBuilder
+    private var appIconLayer: some View {
+        if let appIcon = Self.appIcon {
+            Image(nsImage: appIcon)
+                .resizable()
+                .frame(width: 34, height: 34)
+                // App 图标本身是白底浅色设计，直接压在浅灰卡片上会糊成一片，
+                // 垫一层白底把它从背景里分出来
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.white)
+                )
+                // 先裁形，再描边：反过来描边会被裁掉一半
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(ToastStyle.innerBorderColor, lineWidth: 0.5)
+                )
+        } else {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(ToastStyle.iconGradient)
+                Image(systemName: iconName)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 34, height: 34)
+        }
+    }
+
+    /// 本 App 的图标，只取一次。
+    ///
+    /// NSImage(named: NSImage.applicationIconName) 拿的是 Assets 里的 AppIcon，
+    /// 比自己拼路径去读 icon_64x64.png 稳妥。
+    private static let appIcon: NSImage? = {
+        if let icon = NSImage(named: NSImage.applicationIconName) { return icon }
+        return NSApplication.shared.applicationIconImage
+    }()
 
     // MARK: - content helpers
 

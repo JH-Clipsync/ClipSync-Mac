@@ -20,37 +20,35 @@ enum ToastStyle {
     /// 内部小卡片（图片卡、胶囊）的圆角
     static let innerCornerRadius: CGFloat = 10
 
-    /// 主按钮底色：中性深灰，在白底上作为唯一的重色，突出但不花
-    static let accentFill = Color(red: 0.26, green: 0.27, blue: 0.29)
+    /// 主按钮底色：中性深灰，浅灰底上唯一的重色
+    static let accentFill = Color(white: 0.28)
     /// 主按钮完成态：再压暗一档，作为"已复制"的反馈
-    static let accentFillStrong = Color(red: 0.16, green: 0.17, blue: 0.19)
-    /// 次要按钮底色：白底上的浅灰填充
-    static let secondaryFill = Color(red: 0.93, green: 0.93, blue: 0.94)
-    /// 次要按钮描边，让浅灰填充在白底上有边界
-    static let secondaryStroke = Color.black.opacity(0.10)
+    static let accentFillStrong = Color(white: 0.18)
+    /// 次要按钮底色：比卡片底亮一档，靠描边区分
+    static let secondaryFill = Color(white: 0.97)
+    /// 次要按钮描边（取自系统通知的间隙灰 177/255≈0.69）
+    static let secondaryStroke = Color(white: 0.69)
 
-    /// 图标底色：中性深灰渐变，白底上的视觉锚点
+    /// 图标兜底底色：拿不到 App 图标时用中性深灰渐变
     static let iconGradient = LinearGradient(
-        colors: [
-            Color(red: 0.38, green: 0.39, blue: 0.42),
-            Color(red: 0.24, green: 0.25, blue: 0.27)
-        ],
+        colors: [Color(white: 0.40), Color(white: 0.26)],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )
 
-    /// 图片卡底色：比白底略深一档的浅灰，用来托住图片
-    static let imageCardFill = Color(red: 0.96, green: 0.96, blue: 0.97)
+    /// 图片卡底色：比卡片底亮一档，用来托住图片
+    static let imageCardFill = Color(white: 0.97)
 
-    /// 弹窗外描边：白底需要一道淡灰边把自己从桌面上"切"出来
-    static let borderColor = Color.black.opacity(0.10)
+    /// 弹窗外描边：取系统通知的间隙灰，把卡片从桌面上分离出来
+    static let borderColor = Color(white: 0.69).opacity(0.55)
     /// 内部小卡片描边
-    static let innerBorderColor = Color.black.opacity(0.08)
-    /// 阴影：系统通知那种柔和的中性阴影
-    static let shadowColor = Color.black.opacity(0.18)
+    static let innerBorderColor = Color.black.opacity(0.10)
+    /// 阴影：中性黑，柔和扩散
+    static let shadowColor = Color.black.opacity(0.20)
 
-    /// 背板染色：在毛玻璃上盖一层近白，做出系统通知的亮底质感。
+    /// 背板染色：盖一层中性浅灰，对齐系统通知实测的 RGB(223,223,223)。
     ///
-    /// 留一点透明度让底下的模糊透出来，不至于变成一块死板的纯白色块。
-    static let backdropTint = Color.white.opacity(0.82)
+    /// 用 0.875 而不是纯白：参考图里卡片亮度是 223 而非 255，略暗一档才有
+    /// "卡片"的质感。留一点透明度让底下的模糊透出来。
+    static let backdropTint = Color(white: 0.875).opacity(0.86)
 }
