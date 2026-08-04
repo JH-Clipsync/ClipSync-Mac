@@ -233,17 +233,17 @@ struct HomeView: View {
             Text("加密已关闭：消息以明文传输")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
-        } else if settings.usingBuiltinSyncPassword {
-            Label(
-                "未填同步密码，正在使用内置默认密码（各端通用，强度低于自设密码）",
-                systemImage: "exclamationmark.triangle.fill"
-            )
-            .font(.system(size: 11))
-            .foregroundStyle(.orange)
-        } else if let fp = PayloadCipher.fingerprint(password: settings.effectiveSyncPassword) {
-            Text("密钥指纹 \(fp)")
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(.secondary)
+        } else {
+            if settings.usingBuiltinSyncPassword {
+                Label(
+                    "未填同步密码，正在使用内置默认密码（各端通用，强度低于自设密码）",
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .font(.system(size: 11))
+                .foregroundStyle(.orange)
+            }
+            // 指纹在后台算，不阻塞 body 求值
+            FingerprintLabel(password: settings.effectiveSyncPassword)
         }
     }
 

@@ -17,29 +17,54 @@ enum PayloadCipher {
 
     // MARK: - 密钥缓存
 
-    private static var cachedPassword: String?
-    private static var cachedKey: SymmetricKey?
+    /// 密钥缓存最多留几把（够覆盖"连接在用的"+"设置页正在试的"）
+    private static let maxCachedKeys = 4
+
+    /// 已派生密钥缓存，key 是同步密码；order 记录使用顺序用于淘汰。
+    ///
+    /// 用多槽而不是单槽：设置页一边打字算指纹、连接一边在发消息，单槽会被
+    /// 打字过程反复挤掉，导致每条消息都重新派生。密钥是密码的纯函数（盐写死
+    /// 在 E2EECrypto 里），所以缓存不需要失效，只需要限制条数。
+    private static var keyCache: [String: SymmetricKey] = [:]
+    private static var keyOrder: [String] = []
     private static let lock = NSLock()
 
     /// 取当前同步密码对应的密钥；密码为空返回 nil（等于关闭加密）。
     static func currentKey(password: String) -> SymmetricKey? {
         guard !password.isEmpty else { return nil }
         lock.lock()
-        defer { lock.unlock() }
-        if let key = cachedKey, cachedPassword == password {
+        if let key = keyCache[password] {
+            touch(password)
+            lock.unlock()
             return key
         }
+        lock.unlock()
+
+        // 派生放在锁外：单次要跑 20 万轮 PBKDF2，持锁会把正在发消息的线程一起
+        // 堵住。并发算同一个密码最多白跑一次，无副作用。
         guard let key = E2EECrypto.deriveKey(password: password) else { return nil }
-        cachedPassword = password
-        cachedKey = key
+
+        lock.lock()
+        keyCache[password] = key
+        touch(password)
+        while keyOrder.count > maxCachedKeys {
+            keyCache.removeValue(forKey: keyOrder.removeFirst())
+        }
+        lock.unlock()
         return key
     }
 
-    /// 密码变更时清掉缓存，下次发送重新派生。
+    /// 把密码挪到使用顺序末尾。调用方必须已持锁。
+    private static func touch(_ password: String) {
+        keyOrder.removeAll { $0 == password }
+        keyOrder.append(password)
+    }
+
+    /// 清空密钥缓存（仅测试 / 排查用；正常运行不需要，密钥是密码的纯函数）。
     static func invalidateKeyCache() {
         lock.lock()
-        cachedPassword = nil
-        cachedKey = nil
+        keyCache.removeAll()
+        keyOrder.removeAll()
         lock.unlock()
     }
 

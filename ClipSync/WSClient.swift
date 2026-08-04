@@ -144,6 +144,20 @@ final class WSClient: ObservableObject {
         task?.resume()
         receiveLoop()
         startPing()
+        warmUpEncryptionKey()
+    }
+
+    /// 预热加密密钥。
+    ///
+    /// 派生一次要跑 20 万轮 PBKDF2，若留到第一条消息发送时才算，那条消息会
+    /// 明显延迟。PayloadCipher 内部按密码缓存，所以先算一次就够了。
+    private func warmUpEncryptionKey() {
+        let password = SettingsStore.shared.effectiveSyncPassword
+        guard !password.isEmpty else { return }
+        Task.detached(priority: .utility) {
+            _ = PayloadCipher.currentKey(password: password)
+            NSLog("[WS] 🔑 端到端加密密钥已就绪")
+        }
     }
 
     func stop() {
