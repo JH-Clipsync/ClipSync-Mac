@@ -43,25 +43,25 @@ enum ToastStyle {
     )
 
     /// 图片卡底色：比卡片底暗一档的中性灰，用来托住图片
-    static let imageCardFill = Color(white: 0.93)
+    static let imageCardFill = Color(white: 0.90)
 
     /// App 图标的衬底。
     ///
-    /// 图标本身是白底浅色设计，卡片底又是近白，得垫一层略暗的中性灰才能把
-    /// 它从背景里分出来。
-    static let iconPlateFill = Color(white: 0.92)
+    /// 图标本身是白底浅色设计，卡片底又接近纯白，衬底得压得够暗才分得开 ——
+    /// 和底色至少留 10% 明度差，否则两块灰糊在一起。
+    static let iconPlateFill = Color(white: 0.88)
 
-    /// 弹窗外描边：底色提亮后需要稍重一点的边，才能从浅色桌面上分离出来
-    static let borderColor = Color(white: 0.66).opacity(0.60)
+    /// 弹窗外描边：底色接近纯白后必须再重一点，否则在浅色桌面上没有边界
+    static let borderColor = Color(white: 0.60).opacity(0.70)
     /// 内部小卡片描边
     static let innerBorderColor = Color.black.opacity(0.10)
     /// 阴影：中性黑，柔和扩散
     static let shadowColor = Color.black.opacity(0.20)
 
-    /// 背板染色：近白。
+    /// 背板染色：近纯白。
     ///
-    /// 系统通知实测是 RGB(223,223,223)，但那张参考图整体偏暗；这里取 0.965
-    /// （≈246）更亮一档，配合靛蓝按钮画面更透气。仍不用纯白：留一点灰才有
-    /// "卡片"的质感，也让底下的模糊能透出来。
-    static let backdropTint = Color(white: 0.965).opacity(0.90)
+    /// 系统通知实测是 RGB(223,223,223)，但那张参考图整体偏暗。这里取 0.99
+    /// （≈252），让底色跟图标衬底（0.88）拉开足够反差。留一丝不透明度是为了
+    /// 让底下的模糊仍能透出来，不至于变成一块死板的色块。
+    static let backdropTint = Color(white: 0.99).opacity(0.94)
 }
