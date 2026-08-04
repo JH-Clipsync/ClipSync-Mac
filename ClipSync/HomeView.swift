@@ -203,13 +203,13 @@ struct HomeView: View {
 
                 // 关闭加密时整行隐藏：明文传输下这个输入框没有意义
                 if settings.e2eeEnabled {
-                    HStack(spacing: 8) {
+                    HStack(alignment: .top, spacing: 8) {
                         Image(systemName: "key.horizontal.fill")
                             .foregroundStyle(.secondary)
                             .frame(width: 18)
-                        RevealPasswordField(
-                            title: "同步密码（留空则用内置默认密码）",
-                            text: $settings.syncPassword,
+                        // 密码要点「确定」才保存：派生密钥很贵，不能跟着每次按键跑
+                        SyncPasswordField(
+                            settings: settings,
                             isRevealed: $revealSyncPassword
                         )
                     }

@@ -14,13 +14,6 @@ struct SettingsView: View {
     @State private var revealSyncPassword = false
     @State private var revealLoginPassword = false
 
-    /// 同步密码的本地草稿。
-    ///
-    /// 不直接绑到 settings.syncPassword：那样每敲一个字符都会写 UserDefaults
-    /// 并触发指纹重算（派生一次是 20 万轮 PBKDF2）。用户点「确定」才提交。
-    @State private var syncPasswordDraft = ""
-    @State private var syncPasswordLoaded = false
-
     var body: some View {
         Form {
             connectionSection
@@ -44,12 +37,6 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .padding()
-        // 进页面时把已保存的密码填进草稿；只做一次，避免覆盖用户正在输入的内容
-        .task {
-            guard !syncPasswordLoaded else { return }
-            syncPasswordDraft = settings.syncPassword
-            syncPasswordLoaded = true
-        }
     }
 
     // MARK: - 账号
@@ -131,24 +118,12 @@ struct SettingsView: View {
 
             // 关闭加密时整行隐藏：明文传输下这个输入框没有意义
             if settings.e2eeEnabled {
-                HStack(spacing: 8) {
-                    RevealPasswordField(
-                        title: "同步密码（留空则用内置默认密码）",
-                        text: $syncPasswordDraft,
-                        isRevealed: $revealSyncPassword
-                    )
-                    .onSubmit(applySyncPassword)
-
-                    Button("确定", action: applySyncPassword)
-                        .disabled(!syncPasswordDirty)
-                        .help("保存同步密码并重新派生密钥")
-                }
-
-                if syncPasswordDirty {
-                    Text("同步密码已修改，点「确定」后生效")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
+                // 密码要点「确定」才保存：派生密钥很贵，不能跟着每次按键跑
+                SyncPasswordField(
+                    settings: settings,
+                    isRevealed: $revealSyncPassword,
+                    captionSize: 12
+                )
             }
 
             encryptionStatusText
@@ -159,17 +134,6 @@ struct SettingsView: View {
                     .foregroundStyle(.orange)
             }
         }
-    }
-
-    /// 草稿和已保存值不一致时才算「有改动」
-    private var syncPasswordDirty: Bool {
-        syncPasswordDraft != settings.syncPassword
-    }
-
-    /// 提交同步密码：这一步才会写 UserDefaults 并触发密钥派生
-    private func applySyncPassword() {
-        guard syncPasswordDirty else { return }
-        settings.syncPassword = syncPasswordDraft
     }
 
     /// 说清当前加密状态：明文 / 内置默认密码 / 自设密码
