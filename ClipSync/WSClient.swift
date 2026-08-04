@@ -50,14 +50,21 @@ final class WSClient: ObservableObject {
     /// token 失效由 WS 握手的 401 触发重新换取。
     @MainActor
     func connect(settings: SettingsStore) async {
-        let server = settings.serverURL
+        // 用户可能只填了 host:port，这里统一补上 ws:// 前缀
+        let server = ServerAddress.normalize(settings.serverURL)
+        guard !server.isEmpty else {
+            authError = "请先填写服务器地址，例如 192.168.1.10:8080"
+            return
+        }
 
         if !settings.token.isEmpty {
             start(server: server, token: settings.token)
             return
         }
         guard settings.hasCredentials else {
-            authError = "请先填写用户名和密码"
+            authError = settings.username.isEmpty
+                ? "请填写用户名（账号由管理员创建）"
+                : "请填写密码"
             return
         }
 
@@ -75,8 +82,29 @@ final class WSClient: ObservableObject {
             start(server: server, token: session.token)
         } catch {
             state = .disconnected
-            authError = error.localizedDescription
+            // 区分"服务端不认这套账密"和"根本没连上服务端"，提示才有指导意义
+            authError = Self.describeLoginFailure(error)
             NSLog("[WS] ✗ 自动登录失败: \(error.localizedDescription)")
+        }
+    }
+
+    /// 把登录异常翻成一句用户能照着处理的话
+    static func describeLoginFailure(_ error: Error) -> String {
+        guard let authError = error as? AuthError else {
+            return "连接失败：\(error.localizedDescription)"
+        }
+        switch authError {
+        case .badURL(let s):
+            return "服务器地址不合法：\(s)"
+        case .network(let m):
+            return "连不上服务器（\(m)），请检查地址、网络和服务是否已启动"
+        case .server(let status, let message):
+            if status == 401 || status == 403 {
+                return "登录失败：\(message)，请检查用户名和密码"
+            }
+            return "服务端拒绝登录：\(message)"
+        case .decode(let m):
+            return "服务端响应异常：\(m)"
         }
     }
 
@@ -129,6 +157,14 @@ final class WSClient: ObservableObject {
         state = .disconnected
     }
 
+    /// 用户主动断开：连 stop 一起把失败提示清掉，"手动断开"不是错误
+    @MainActor
+    func disconnect() {
+        stop()
+        authError = nil
+        decryptFailure = nil
+    }
+
     // MARK: - 发送
 
     func sendClipboardText(_ text: String) {
@@ -161,8 +197,9 @@ final class WSClient: ObservableObject {
         // 发送前按需加密：settings.encryptionActive 时把 payload 换成信封
         var outgoing = msg
         let settings = SettingsStore.shared
-        if settings.encryptionActive {
-            outgoing.payload = PayloadCipher.encrypt(msg.payload, password: settings.syncPassword)
+        let syncPassword = settings.effectiveSyncPassword
+        if !syncPassword.isEmpty {
+            outgoing.payload = PayloadCipher.encrypt(msg.payload, password: syncPassword)
         }
         guard let data = try? JSONEncoder().encode(outgoing),
               let text = String(data: data, encoding: .utf8) else {
@@ -173,7 +210,7 @@ final class WSClient: ObservableObject {
             if let err = err {
                 NSLog("[WS] 发送失败: \(err.localizedDescription)")
             } else {
-                NSLog("[WS] ↑ 已发送 \(outgoing.type)\(settings.encryptionActive ? " (已加密)" : "")")
+                NSLog("[WS] ↑ 已发送 \(outgoing.type)\(syncPassword.isEmpty ? "" : " (已加密)")")
             }
         }
     }
@@ -187,7 +224,7 @@ final class WSClient: ObservableObject {
             case .failure(let err):
                 NSLog("[WS] ✗ 接收错误: \(err.localizedDescription)")
                 self.noteAuthFailureIfNeeded(err)
-                self.scheduleReconnect()
+                self.scheduleReconnect(reason: Self.describeSocketFailure(err))
             case .success(let msg):
                 switch msg {
                 case .string(let text): self.handle(text: text)
@@ -212,18 +249,21 @@ final class WSClient: ObservableObject {
         // 密文消息：用本机同步密码解开；解不开就只提示，不把密文塞进历史
         var resolved = msg
         let settings = SettingsStore.shared
-        switch PayloadCipher.decrypt(msg.payload, password: settings.syncPassword) {
+        switch PayloadCipher.decrypt(msg.payload, password: settings.effectiveSyncPassword) {
         case .plaintext:
             NSLog("[WS] ↓ 收到 \(msg.type)")
         case .decrypted(let plain):
             resolved.payload = plain
             NSLog("[WS] ↓ 收到 \(msg.type) (已解密)")
         case .failed(let fingerprint):
-            let localFP = PayloadCipher.fingerprint(password: settings.syncPassword) ?? "未设置"
+            let localFP = PayloadCipher.fingerprint(password: settings.effectiveSyncPassword)
+                ?? "未设置"
             NSLog("[WS] ✗ 解密失败 对端 key=\(fingerprint) 本机 key=\(localFP)")
             DispatchQueue.main.async {
                 self.state = .connected
-                self.decryptFailure = "收到无法解密的消息：请确认两端「同步密码」填写一致"
+                self.decryptFailure = settings.e2eeEnabled
+                    ? "收到无法解密的消息：请确认两端「同步密码」填写一致"
+                    : "收到加密消息但本机未开启端到端加密，请在设置里打开"
             }
             return
         }
@@ -255,10 +295,14 @@ final class WSClient: ObservableObject {
                 if let err = err {
                     NSLog("[WS] ⚠ ping 失败: \(err.localizedDescription)")
                     self.noteAuthFailureIfNeeded(err)
-                    if self.state != .disconnected { self.scheduleReconnect() }
+                    if self.state != .disconnected {
+                        self.scheduleReconnect(reason: Self.describeSocketFailure(err))
+                    }
                 } else if self.state != .connected {
                     self.state = .connected
                     self.connectingSince = nil
+                    // 连上了，之前的失败提示就该消失
+                    self.authError = nil
                     NSLog("[WS] 🟢 已连接服务器")
                 }
             }
@@ -289,7 +333,31 @@ final class WSClient: ObservableObject {
         }
     }
 
-    private func scheduleReconnect() {
+    /// 把 URLSession 的底层错误翻成用户能看懂的一句话
+    static func describeSocketFailure(_ error: Error) -> String {
+        let ns = error as NSError
+        guard ns.domain == NSURLErrorDomain else {
+            return "连接中断：\(ns.localizedDescription)"
+        }
+        switch ns.code {
+        case NSURLErrorNotConnectedToInternet:
+            return "网络不可用，请检查本机网络连接"
+        case NSURLErrorCannotFindHost, NSURLErrorDNSLookupFailed:
+            return "找不到服务器，请检查服务器地址"
+        case NSURLErrorCannotConnectToHost:
+            return "服务器拒绝连接，请确认地址、端口和服务是否已启动"
+        case NSURLErrorTimedOut:
+            return "连接服务器超时，请检查网络或服务器状态"
+        case NSURLErrorSecureConnectionFailed, NSURLErrorServerCertificateUntrusted:
+            return "TLS 握手失败，请确认服务器证书配置"
+        case NSURLErrorNetworkConnectionLost:
+            return "网络连接已断开，请重新连接"
+        default:
+            return "连接失败：\(ns.localizedDescription)"
+        }
+    }
+
+    private func scheduleReconnect(reason: String? = nil) {
         DispatchQueue.main.async {
             // 保证 "连接中" 至少显示 minConnectingDuration，避免一闪而过
             let delay: TimeInterval = {
@@ -306,6 +374,10 @@ final class WSClient: ObservableObject {
                 self.task?.cancel(with: .goingAway, reason: nil)
                 self.task = nil
                 self.pingTimer?.invalidate(); self.pingTimer = nil
+                // 把断线原因摆到界面上，别让用户只看到一个"未连接"
+                if let reason, self.authError == nil {
+                    self.authError = reason
+                }
                 NSLog("[WS] 🔴 连接失败，已停止（不自动重连；点重连按钮再试）")
             }
         }

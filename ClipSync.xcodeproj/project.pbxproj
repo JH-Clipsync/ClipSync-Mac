@@ -25,11 +25,13 @@
 		DF46CE338BEC6BDE4A986919 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41FFE570AA0F8D80AFE0EA60 /* ContentView.swift */; };
 		EE71125A91C704A9557B5F48 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BD14586CC3AD90C0A4F06A6 /* main.swift */; };
 		F31DD23799961503A854C4B9 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53CCEFF221D3FCFD3F817339 /* HistoryView.swift */; };
+		F4F19EA632E3581F421243F0 /* ServerAddress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C2899860AE7B4FEFDF20CC1 /* ServerAddress.swift */; };
 		FBF243D2353CAA2715B3E91D /* ClipboardWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6774F5BDA203DE2CE3CAE378 /* ClipboardWriter.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		296D6961B9915AED652CD641 /* HistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryStore.swift; sourceTree = "<group>"; };
+		2C2899860AE7B4FEFDF20CC1 /* ServerAddress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerAddress.swift; sourceTree = "<group>"; };
 		31ADB70BAEDA4189C77EE9E9 /* SettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStore.swift; sourceTree = "<group>"; };
 		41FFE570AA0F8D80AFE0EA60 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		4750275E11A2914084C3627D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -86,6 +88,7 @@
 				4BD14586CC3AD90C0A4F06A6 /* main.swift */,
 				EDA17BC82E58AEE55A4E6B79 /* Models.swift */,
 				F5EFE53E454321AA92DC9CE1 /* RevealPasswordField.swift */,
+				2C2899860AE7B4FEFDF20CC1 /* ServerAddress.swift */,
 				31ADB70BAEDA4189C77EE9E9 /* SettingsStore.swift */,
 				F10A29A5E54C1017FCEDC327 /* SettingsView.swift */,
 				BDFEA81C63A3D5BE482AEBB0 /* SmsCodeExtractor.swift */,
@@ -177,6 +180,7 @@
 				DE7EDD7086F7C8C633B40FCC /* HomeView.swift in Sources */,
 				376495AAB21453A73A20E043 /* Models.swift in Sources */,
 				4ECEBB18073864AD8DA340F3 /* RevealPasswordField.swift in Sources */,
+				F4F19EA632E3581F421243F0 /* ServerAddress.swift in Sources */,
 				30E2F6B003D955A8F7F4D1A7 /* SettingsStore.swift in Sources */,
 				6028C5198C3D77EC1B6207D4 /* SettingsView.swift in Sources */,
 				9E43EF5F0BB412BE9E399C97 /* SmsCodeExtractor.swift in Sources */,

@@ -44,8 +44,12 @@ struct SettingsView: View {
     @ViewBuilder
     private var connectionSection: some View {
         Section("账号") {
-            TextField("服务器地址", text: $settings.serverURL)
+            // 地址只填 host:port，ws:// 由 ServerAddress.normalize 补齐
+            TextField("服务器地址，例如 192.168.1.10:8080", text: $settings.serverURL)
                 .disabled(ws.state != .disconnected)
+            Text(resolvedServerHint)
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.secondary)
 
             // 账号密码常驻显示：连接时才做校验，所以没有单独的「登录」按钮。
             // 账号由管理员在服务端创建，客户端不提供注册入口。
@@ -76,7 +80,7 @@ struct SettingsView: View {
                 .disabled(ws.state != .disconnected || !settings.hasCredentials)
 
                 Button {
-                    ws.stop()
+                    ws.disconnect()
                 } label: {
                     Label("断开", systemImage: "xmark.circle")
                 }
@@ -112,19 +116,16 @@ struct SettingsView: View {
         Section("端到端加密") {
             Toggle("启用端到端加密", isOn: $settings.e2eeEnabled)
 
-            RevealPasswordField(
-                title: "同步密码",
-                text: $settings.syncPassword,
-                isRevealed: $revealSyncPassword,
-                isEnabled: settings.e2eeEnabled
-            )
-
-            if settings.encryptionActive,
-               let fp = PayloadCipher.fingerprint(password: settings.syncPassword) {
-                LabeledContent("密钥指纹", value: fp)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
+            // 关闭加密时整行隐藏：明文传输下这个输入框没有意义
+            if settings.e2eeEnabled {
+                RevealPasswordField(
+                    title: "同步密码（留空则用内置默认密码）",
+                    text: $settings.syncPassword,
+                    isRevealed: $revealSyncPassword
+                )
             }
+
+            encryptionStatusText
 
             if let failure = ws.decryptFailure {
                 Label(failure, systemImage: "lock.trianglebadge.exclamationmark.fill")
@@ -132,6 +133,33 @@ struct SettingsView: View {
                     .foregroundStyle(.orange)
             }
         }
+    }
+
+    /// 说清当前加密状态：明文 / 内置默认密码 / 自设密码
+    @ViewBuilder
+    private var encryptionStatusText: some View {
+        if !settings.e2eeEnabled {
+            Text("加密已关闭：消息以明文传输")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else if settings.usingBuiltinSyncPassword {
+            Label(
+                "未填同步密码，正在使用内置默认密码（各端通用，强度低于自设密码）",
+                systemImage: "exclamationmark.triangle.fill"
+            )
+            .font(.caption)
+            .foregroundStyle(.orange)
+        } else if let fp = PayloadCipher.fingerprint(password: settings.effectiveSyncPassword) {
+            LabeledContent("密钥指纹", value: fp)
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// 回显程序真正会连的地址，用户不用猜前缀补成了什么
+    private var resolvedServerHint: String {
+        let normalized = ServerAddress.normalize(settings.serverURL)
+        return normalized.isEmpty ? "请填写服务器地址" : "将连接 \(normalized)"
     }
 
     // MARK: - 动作

@@ -51,18 +51,27 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(statusText)
                     .font(.system(size: 17, weight: .semibold))
-                Text(settings.serverURL)
+                // 显示规范化后的地址，让用户看到程序实际连的是哪里
+                Text(ServerAddress.normalize(settings.serverURL).isEmpty
+                     ? "未填写服务器地址"
+                     : ServerAddress.normalize(settings.serverURL))
                     .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                if let authError = ws.authError, ws.state == .disconnected {
+                    Text(authError)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             Spacer()
 
             VStack(spacing: 6) {
                 if ws.state == .connecting {
                     Button {
-                        ws.stop()
+                        ws.disconnect()
                     } label: {
                         Label("取消", systemImage: "xmark")
                             .font(.system(size: 12))
@@ -71,7 +80,7 @@ struct HomeView: View {
                     .buttonStyle(.bordered)
                 } else if ws.state == .connected {
                     Button {
-                        ws.stop()
+                        ws.disconnect()
                     } label: {
                         Label("断开", systemImage: "bolt.slash")
                             .font(.system(size: 12))
@@ -120,10 +129,15 @@ struct HomeView: View {
                     Image(systemName: "network")
                         .foregroundStyle(.secondary)
                         .frame(width: 18)
-                    TextField("服务器地址 (ws://...)", text: $settings.serverURL)
+                    // 地址只填 host:port，ws:// 由 ServerAddress.normalize 补齐
+                    TextField("服务器地址，例如 192.168.1.10:8080", text: $settings.serverURL)
                         .textFieldStyle(.roundedBorder)
                         .disabled(ws.state != .disconnected)
                 }
+                Text(resolvedServerHint)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 26)
 
                 // 账号密码常驻输入：点「连接」时才校验，没有单独的登录按钮。
                 // 账号由管理员在服务端创建，客户端不提供注册。
@@ -187,24 +201,22 @@ struct HomeView: View {
                 }
                 .toggleStyle(.switch)
 
-                HStack(spacing: 8) {
-                    Image(systemName: "key.horizontal.fill")
-                        .foregroundStyle(.secondary)
-                        .frame(width: 18)
-                    RevealPasswordField(
-                        title: "同步密码（两端需一致）",
-                        text: $settings.syncPassword,
-                        isRevealed: $revealSyncPassword,
-                        isEnabled: settings.e2eeEnabled
-                    )
+                // 关闭加密时整行隐藏：明文传输下这个输入框没有意义
+                if settings.e2eeEnabled {
+                    HStack(spacing: 8) {
+                        Image(systemName: "key.horizontal.fill")
+                            .foregroundStyle(.secondary)
+                            .frame(width: 18)
+                        RevealPasswordField(
+                            title: "同步密码（留空则用内置默认密码）",
+                            text: $settings.syncPassword,
+                            isRevealed: $revealSyncPassword
+                        )
+                    }
                 }
 
-                if settings.encryptionActive,
-                   let fp = PayloadCipher.fingerprint(password: settings.syncPassword) {
-                    Text("密钥指纹 \(fp)")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                }
+                encryptionStatusText
+
                 if let failure = ws.decryptFailure {
                     Label(failure, systemImage: "lock.trianglebadge.exclamationmark.fill")
                         .font(.system(size: 11))
@@ -212,6 +224,33 @@ struct HomeView: View {
                 }
             }
         }
+    }
+
+    /// 说清当前加密状态：明文 / 内置默认密码 / 自设密码
+    @ViewBuilder
+    private var encryptionStatusText: some View {
+        if !settings.e2eeEnabled {
+            Text("加密已关闭：消息以明文传输")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        } else if settings.usingBuiltinSyncPassword {
+            Label(
+                "未填同步密码，正在使用内置默认密码（各端通用，强度低于自设密码）",
+                systemImage: "exclamationmark.triangle.fill"
+            )
+            .font(.system(size: 11))
+            .foregroundStyle(.orange)
+        } else if let fp = PayloadCipher.fingerprint(password: settings.effectiveSyncPassword) {
+            Text("密钥指纹 \(fp)")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// 回显程序真正会连的地址，用户不用猜前缀补成了什么
+    private var resolvedServerHint: String {
+        let normalized = ServerAddress.normalize(settings.serverURL)
+        return normalized.isEmpty ? "请填写服务器地址" : "将连接 \(normalized)"
     }
 
     // MARK: - 同步开关

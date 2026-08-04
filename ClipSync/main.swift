@@ -233,7 +233,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func disconnect() {
-        WSClient.shared.stop()
+        Task { @MainActor in WSClient.shared.disconnect() }
     }
 
     @objc func quit() {

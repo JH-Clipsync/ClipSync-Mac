@@ -54,8 +54,21 @@ final class SettingsStore: ObservableObject {
         didSet { UserDefaults.standard.set(autoSyncClipboard, forKey: "autoSyncClipboard") }
     }
 
-    /// 加密实际生效需要同时满足：开关打开 + 密码非空
-    var encryptionActive: Bool { e2eeEnabled && !syncPassword.isEmpty }
+    /// 实际用来派生密钥的密码。
+    ///
+    /// 开关关闭 → 空串（明文传输）；
+    /// 开关打开但用户没填 → 内置默认密码，避免「开了加密却在发明文」；
+    /// 开关打开且填了 → 用户自己的密码。
+    var effectiveSyncPassword: String {
+        guard e2eeEnabled else { return "" }
+        return syncPassword.isEmpty ? E2EECrypto.builtinSyncPassword : syncPassword
+    }
+
+    /// 当前是否在用内置默认密码（界面据此提示用户）
+    var usingBuiltinSyncPassword: Bool { e2eeEnabled && syncPassword.isEmpty }
+
+    /// 加密是否生效。开关打开就一定生效——没填密码时走内置默认密码。
+    var encryptionActive: Bool { e2eeEnabled }
 
     /// 已登录 = 本地有 token
     var isLoggedIn: Bool { !token.isEmpty }

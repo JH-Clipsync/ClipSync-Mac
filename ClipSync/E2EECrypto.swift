@@ -24,6 +24,14 @@ enum E2EECrypto {
     static let kdfName = "PBKDF2-HMAC-SHA256"
     static let iterations = 200_000
 
+    /// 内置默认同步密码：用户开了加密但没填自己的密码时使用。
+    ///
+    /// 写死在三端，所以「开了加密却没填密码」不会退化成明文，两端也不需要任何
+    /// 约定就能互通。强度弱于用户自设密码（值是公开的），只作兜底默认值。
+    /// 三端必须同步：Android 端 E2EECrypto.BUILTIN_SYNC_PASSWORD，
+    /// 服务端 e2ee.go 的 BuiltinSyncPassword。
+    static let builtinSyncPassword = "cs1-louuMZxNFCXgL1AcXjlBCly2E54NeH5T"
+
     /// 固定盐的来源字符串。改动它等于让所有历史密文无法解开。
     private static let saltSeed = "clipsync-e2ee-v1"
 
