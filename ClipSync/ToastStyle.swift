@@ -42,26 +42,45 @@ enum ToastStyle {
         endPoint: .bottomTrailing
     )
 
-    /// 图片卡底色：比卡片底暗一档的中性灰，用来托住图片
-    static let imageCardFill = Color(white: 0.90)
+    /// 图片卡底色：比卡片底亮一档的近白，用来托住图片。
+    ///
+    /// 卡片底改成 0.915 的浅灰后，托底必须往**亮**的方向走，否则两块灰糊在一起。
+    static let imageCardFill = Color(white: 0.98)
 
     /// App 图标的衬底。
     ///
-    /// 图标本身是白底浅色设计，卡片底又接近纯白，衬底得压得够暗才分得开 ——
-    /// 和底色至少留 10% 明度差，否则两块灰糊在一起。
-    static let iconPlateFill = Color(white: 0.88)
+    /// 图标本身是白底浅色设计，衬底要和卡片底（0.915）留足明度差才分得开。
+    /// 卡片底变灰后改用近白，让图标像放在一张小白卡上。
+    static let iconPlateFill = Color(white: 0.99)
 
-    /// 弹窗外描边：底色接近纯白后必须再重一点，否则在浅色桌面上没有边界
-    static let borderColor = Color(white: 0.60).opacity(0.70)
+    /// 弹窗外描边：一圈比卡片底略亮的高光。
+    ///
+    /// 参考图实测：卡片主体 RGB≈231/234，最外一圈是 241 —— 比主体只**亮 7 档**，
+    /// 是收敛的高光而不是深色描边。边界感主要来自外侧阴影，这圈只负责给玻璃面
+    /// 一点厚度。透明度压到 0.35 后实测约 241，正好和参考图对齐；给到 0.75 会
+    /// 冲到 250+，亮得像一道白线。
+    static let borderColor = Color(white: 1.0).opacity(0.35)
+
+    /// 外描边宽度。
+    ///
+    /// 必须是整数 1 而不是 0.5：在非 Retina 屏（scale = 1）上，0.5pt 的线得靠
+    /// 抗锯齿摊到相邻像素，而左右两条竖边的亚像素对齐并不一样 —— 一侧被摊成
+    /// 几乎纯白（看着就是"边框中间断了"），另一侧却留下清晰的灰线。1pt 正好
+    /// 落满一个整像素，四条边粗细一致。
+    static let borderWidth: CGFloat = 1
+
+    /// 卡片底色：参考图实测 RGB≈231/234 的浅灰玻璃面
+    static let cardTint = Color(white: 0.915)
     /// 内部小卡片描边
     static let innerBorderColor = Color.black.opacity(0.10)
-    /// 阴影：中性黑，柔和扩散
-    static let shadowColor = Color.black.opacity(0.20)
-
-    /// 背板染色：近纯白。
+    /// 阴影：中性黑，柔和扩散。
     ///
-    /// 系统通知实测是 RGB(223,223,223)，但那张参考图整体偏暗。这里取 0.99
-    /// （≈252），让底色跟图标衬底（0.88）拉开足够反差。留一丝不透明度是为了
-    /// 让底下的模糊仍能透出来，不至于变成一块死板的色块。
-    static let backdropTint = Color(white: 0.99).opacity(0.94)
+    /// 边界不再靠描边，全靠这层阴影跟桌面分开，所以要比之前明显一点。
+    static let shadowColor = Color.black.opacity(0.28)
+
+    /// 背板染色：浅灰玻璃面。
+    ///
+    /// 对齐参考图实测的 RGB≈231：不再是近纯白，而是能看出是一块半透玻璃的浅
+    /// 灰。留一点不透明度，让底下的模糊仍透得出来。
+    static let backdropTint = cardTint.opacity(0.90)
 }

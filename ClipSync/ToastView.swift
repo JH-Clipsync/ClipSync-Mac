@@ -67,7 +67,7 @@ struct ToastView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: ToastStyle.cornerRadius, style: .continuous)
-                .strokeBorder(ToastStyle.borderColor, lineWidth: 0.5)
+                .strokeBorder(ToastStyle.borderColor, lineWidth: ToastStyle.borderWidth)
         )
         .clipShape(RoundedRectangle(cornerRadius: ToastStyle.cornerRadius, style: .continuous))
         .shadow(color: ToastStyle.shadowColor, radius: 20, y: 6)
@@ -91,13 +91,17 @@ struct ToastView: View {
         let h = img.size.height
         guard w > 0, h > 0 else { return nil }
         let scale = min(260 / max(w, h), 320 / w, 1.0)
-        return CGSize(width: w * scale, height: h * scale)
+        // 取整：尺寸带小数会让图片卡和弹窗宽度都落在半像素上，描边跟着被抹掉
+        return CGSize(width: (w * scale).rounded(), height: (h * scale).rounded())
     }
 
-    /// 弹窗宽度：文字固定 380；图片按显示宽 + 边距
+    /// 弹窗宽度：文字固定 380；图片按显示宽 + 边距。
+    ///
+    /// 结果必须是整数，且要和窗口的 contentSize 完全一致 —— 只要两者差半个
+    /// 像素，SwiftUI 就会把内容居中偏移，一侧描边被抗锯齿摊没，看着就是边框断了。
     var windowWidth: CGFloat {
         if let s = imageDisplaySize {
-            return max(300, s.width + 20 + 28 + 10 + 28)
+            return ceil(max(300, s.width + 20 + 28 + 10 + 28))
         }
         return 380
     }

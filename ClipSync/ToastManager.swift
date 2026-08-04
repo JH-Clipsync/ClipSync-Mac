@@ -86,10 +86,14 @@ final class ToastManager {
         // 先给定初始宽度让 SwiftUI 按 windowWidth 布局，再量高度
         hosting.frame = NSRect(x: 0, y: 0, width: content.windowWidth, height: 200)
         let size = hosting.fittingSize
-        // 宽高都跟内容走：窄图出窄弹窗，文本保持 380
+        // 宽高都跟内容走：窄图出窄弹窗，文本保持 380。
+        //
+        // 必须向上取整：fittingSize 常带小数，而 SwiftUI 会把固定宽的内容居中
+        // 放进承载视图，半像素的偏移会让左右竖边一侧被抗锯齿抹掉 —— 表现就是
+        // "边框中间断了一截"。
         win.setContentSize(NSSize(
-            width:  max(size.width,  content.windowWidth),
-            height: max(size.height, 60)
+            width:  ceil(max(size.width,  content.windowWidth)),
+            height: ceil(max(size.height, 60))
         ))
 
         windows.append(win)
@@ -114,7 +118,9 @@ final class ToastManager {
         for w in windows {
             let s = w.frame.size
             let x = vf.maxX - s.width - margin
-            w.setFrameOrigin(NSPoint(x: x, y: y - s.height))
+            // 原点同样要落在整像素上：visibleFrame 在有刘海/菜单栏的屏幕上会带
+            // 小数，半像素的窗口位置会把描边重新抹掉。
+            w.setFrameOrigin(NSPoint(x: (x).rounded(), y: (y - s.height).rounded()))
             y = y - s.height - spacing
         }
     }
