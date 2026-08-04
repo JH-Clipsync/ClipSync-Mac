@@ -76,14 +76,24 @@ final class ToastManager {
         // NSHostingView 会根据 SwiftUI 内容计算 fittingSize，我们用它做窗口大小
         let hosting = NSHostingView(rootView: content)
         hosting.translatesAutoresizingMaskIntoConstraints = false
+        // 承载视图自己也要带圆角：SwiftUI 里的 clipShape 管不到 AppKit 层，
+        // 漏出来的方角就是"有时圆角有时方角"的由来
+        hosting.wantsLayer = true
+        hosting.layer?.cornerRadius = ToastStyle.cornerRadius
+        hosting.layer?.cornerCurve = .continuous
+        hosting.layer?.masksToBounds = true
         win.contentView = hosting
         // 先给定初始宽度让 SwiftUI 按 windowWidth 布局，再量高度
         hosting.frame = NSRect(x: 0, y: 0, width: content.windowWidth, height: 200)
         let size = hosting.fittingSize
-        // 宽高都跟内容走：窄图出窄弹窗，文本保持 380
+        // 宽高都跟内容走：窄图出窄弹窗，文本保持 380。
+        //
+        // 必须向上取整：fittingSize 常带小数，而 SwiftUI 会把固定宽的内容居中
+        // 放进承载视图，半像素的偏移会让左右竖边一侧被抗锯齿抹掉 —— 表现就是
+        // "边框中间断了一截"。
         win.setContentSize(NSSize(
-            width:  max(size.width,  content.windowWidth),
-            height: max(size.height, 60)
+            width:  ceil(max(size.width,  content.windowWidth)),
+            height: ceil(max(size.height, 60))
         ))
 
         windows.append(win)
@@ -108,7 +118,9 @@ final class ToastManager {
         for w in windows {
             let s = w.frame.size
             let x = vf.maxX - s.width - margin
-            w.setFrameOrigin(NSPoint(x: x, y: y - s.height))
+            // 原点同样要落在整像素上：visibleFrame 在有刘海/菜单栏的屏幕上会带
+            // 小数，半像素的窗口位置会把描边重新抹掉。
+            w.setFrameOrigin(NSPoint(x: (x).rounded(), y: (y - s.height).rounded()))
             y = y - s.height - spacing
         }
     }
@@ -145,13 +157,18 @@ final class ToastManager {
     }
 }
 
-// MARK: - 无边框浮窗（不激活 App）
+// MARK: - 无边框浮窗（点击不激活 App）
 
-final class ToastWindow: NSWindow {
+/// Toast 浮窗。
+///
+/// 必须是 NSPanel 且带 .nonactivatingPanel：这是唯一能让"点击浮窗上的按钮
+/// 不激活本 App"的做法。普通 NSWindow 即使 canBecomeKey=false，点击时系统
+/// 仍会激活所属 App，进而把主窗口一起带到前台，挡住用户正在操作的地方。
+final class ToastWindow: NSPanel {
     convenience init() {
         self.init(
             contentRect: NSRect(x: 0, y: 0, width: 340, height: 100),
-            styleMask: [.borderless],
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
@@ -162,6 +179,9 @@ final class ToastWindow: NSWindow {
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle, .stationary]
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
+        // 浮窗自己不参与激活，也别抢已有的 key 状态
+        isFloatingPanel = true
+        becomesKeyOnlyIfNeeded = true
     }
 
     override var canBecomeKey: Bool { false }

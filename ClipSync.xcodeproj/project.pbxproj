@@ -12,20 +12,29 @@
 		29077AC77B06B18A994A8D4A /* WSClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = F31A64A6C24C3BA7BE2F5F1A /* WSClient.swift */; };
 		30E2F6B003D955A8F7F4D1A7 /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31ADB70BAEDA4189C77EE9E9 /* SettingsStore.swift */; };
 		376495AAB21453A73A20E043 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDA17BC82E58AEE55A4E6B79 /* Models.swift */; };
+		482F06753707E7BE137C414B /* ToastStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB9BD95881A0BB7E4CA92FFF /* ToastStyle.swift */; };
+		4855ED325DFFEBFFF514C465 /* E2EEEnvelope.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB8C0E0883F820B0BBB3ABFF /* E2EEEnvelope.swift */; };
+		4ECEBB18073864AD8DA340F3 /* RevealPasswordField.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5EFE53E454321AA92DC9CE1 /* RevealPasswordField.swift */; };
 		53447D2859A6B14EDC992599 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = ED838D6851172B5669A1D8C1 /* Assets.xcassets */; };
+		54C22CC8859219A063195D0F /* SyncPasswordField.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFF89E75BF1FBB92309E8E43 /* SyncPasswordField.swift */; };
+		56F241ACED194B5E2CF5D6F2 /* FingerprintLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 820CEDAD73448FEB52916EBF /* FingerprintLabel.swift */; };
 		5FA22DFA89011EFE9777F8F4 /* ToastManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2E5D59E8B63F7472FCEF012 /* ToastManager.swift */; };
 		6028C5198C3D77EC1B6207D4 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10A29A5E54C1017FCEDC327 /* SettingsView.swift */; };
 		9E43EF5F0BB412BE9E399C97 /* SmsCodeExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDFEA81C63A3D5BE482AEBB0 /* SmsCodeExtractor.swift */; };
+		BC453A5A195631A9780BEAEA /* E2EECrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F8DFD90254B9A75CA217BB3 /* E2EECrypto.swift */; };
 		C0016C113F25ECF9ADEC13BC /* ClipboardMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80079126FF9BA0FBBC1944AC /* ClipboardMonitor.swift */; };
+		D17992C7B1197DE7182EBBAF /* AuthClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFBEE31533A90D728F521B38 /* AuthClient.swift */; };
 		DE7EDD7086F7C8C633B40FCC /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2FCC4C0BA735F658A1B20F7 /* HomeView.swift */; };
 		DF46CE338BEC6BDE4A986919 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41FFE570AA0F8D80AFE0EA60 /* ContentView.swift */; };
 		EE71125A91C704A9557B5F48 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BD14586CC3AD90C0A4F06A6 /* main.swift */; };
 		F31DD23799961503A854C4B9 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53CCEFF221D3FCFD3F817339 /* HistoryView.swift */; };
+		F4F19EA632E3581F421243F0 /* ServerAddress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C2899860AE7B4FEFDF20CC1 /* ServerAddress.swift */; };
 		FBF243D2353CAA2715B3E91D /* ClipboardWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6774F5BDA203DE2CE3CAE378 /* ClipboardWriter.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		296D6961B9915AED652CD641 /* HistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryStore.swift; sourceTree = "<group>"; };
+		2C2899860AE7B4FEFDF20CC1 /* ServerAddress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerAddress.swift; sourceTree = "<group>"; };
 		31ADB70BAEDA4189C77EE9E9 /* SettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStore.swift; sourceTree = "<group>"; };
 		41FFE570AA0F8D80AFE0EA60 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		4750275E11A2914084C3627D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -33,15 +42,22 @@
 		53CCEFF221D3FCFD3F817339 /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
 		6774F5BDA203DE2CE3CAE378 /* ClipboardWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardWriter.swift; sourceTree = "<group>"; };
 		80079126FF9BA0FBBC1944AC /* ClipboardMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardMonitor.swift; sourceTree = "<group>"; };
+		820CEDAD73448FEB52916EBF /* FingerprintLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FingerprintLabel.swift; sourceTree = "<group>"; };
+		9F8DFD90254B9A75CA217BB3 /* E2EECrypto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = E2EECrypto.swift; sourceTree = "<group>"; };
 		A79C3DC0654EDBE2091B7DA1 /* ClipSync.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClipSync.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AFF89E75BF1FBB92309E8E43 /* SyncPasswordField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncPasswordField.swift; sourceTree = "<group>"; };
 		B2E5D59E8B63F7472FCEF012 /* ToastManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToastManager.swift; sourceTree = "<group>"; };
 		BB8C7743EFF7F41BC6809591 /* ToastView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToastView.swift; sourceTree = "<group>"; };
 		BDFEA81C63A3D5BE482AEBB0 /* SmsCodeExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmsCodeExtractor.swift; sourceTree = "<group>"; };
 		D2FCC4C0BA735F658A1B20F7 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		DB8C0E0883F820B0BBB3ABFF /* E2EEEnvelope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = E2EEEnvelope.swift; sourceTree = "<group>"; };
 		ED838D6851172B5669A1D8C1 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		EDA17BC82E58AEE55A4E6B79 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		F10A29A5E54C1017FCEDC327 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		F31A64A6C24C3BA7BE2F5F1A /* WSClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WSClient.swift; sourceTree = "<group>"; };
+		F5EFE53E454321AA92DC9CE1 /* RevealPasswordField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RevealPasswordField.swift; sourceTree = "<group>"; };
+		FB9BD95881A0BB7E4CA92FFF /* ToastStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToastStyle.swift; sourceTree = "<group>"; };
+		FFBEE31533A90D728F521B38 /* AuthClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthClient.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -65,19 +81,27 @@
 			isa = PBXGroup;
 			children = (
 				ED838D6851172B5669A1D8C1 /* Assets.xcassets */,
+				FFBEE31533A90D728F521B38 /* AuthClient.swift */,
 				80079126FF9BA0FBBC1944AC /* ClipboardMonitor.swift */,
 				6774F5BDA203DE2CE3CAE378 /* ClipboardWriter.swift */,
 				41FFE570AA0F8D80AFE0EA60 /* ContentView.swift */,
+				9F8DFD90254B9A75CA217BB3 /* E2EECrypto.swift */,
+				DB8C0E0883F820B0BBB3ABFF /* E2EEEnvelope.swift */,
+				820CEDAD73448FEB52916EBF /* FingerprintLabel.swift */,
 				296D6961B9915AED652CD641 /* HistoryStore.swift */,
 				53CCEFF221D3FCFD3F817339 /* HistoryView.swift */,
 				D2FCC4C0BA735F658A1B20F7 /* HomeView.swift */,
 				4750275E11A2914084C3627D /* Info.plist */,
 				4BD14586CC3AD90C0A4F06A6 /* main.swift */,
 				EDA17BC82E58AEE55A4E6B79 /* Models.swift */,
+				F5EFE53E454321AA92DC9CE1 /* RevealPasswordField.swift */,
+				2C2899860AE7B4FEFDF20CC1 /* ServerAddress.swift */,
 				31ADB70BAEDA4189C77EE9E9 /* SettingsStore.swift */,
 				F10A29A5E54C1017FCEDC327 /* SettingsView.swift */,
 				BDFEA81C63A3D5BE482AEBB0 /* SmsCodeExtractor.swift */,
+				AFF89E75BF1FBB92309E8E43 /* SyncPasswordField.swift */,
 				B2E5D59E8B63F7472FCEF012 /* ToastManager.swift */,
+				FB9BD95881A0BB7E4CA92FFF /* ToastStyle.swift */,
 				BB8C7743EFF7F41BC6809591 /* ToastView.swift */,
 				F31A64A6C24C3BA7BE2F5F1A /* WSClient.swift */,
 			);
@@ -154,17 +178,25 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D17992C7B1197DE7182EBBAF /* AuthClient.swift in Sources */,
 				C0016C113F25ECF9ADEC13BC /* ClipboardMonitor.swift in Sources */,
 				FBF243D2353CAA2715B3E91D /* ClipboardWriter.swift in Sources */,
 				DF46CE338BEC6BDE4A986919 /* ContentView.swift in Sources */,
+				BC453A5A195631A9780BEAEA /* E2EECrypto.swift in Sources */,
+				4855ED325DFFEBFFF514C465 /* E2EEEnvelope.swift in Sources */,
+				56F241ACED194B5E2CF5D6F2 /* FingerprintLabel.swift in Sources */,
 				0FFBDE010AFAD3867ECB0509 /* HistoryStore.swift in Sources */,
 				F31DD23799961503A854C4B9 /* HistoryView.swift in Sources */,
 				DE7EDD7086F7C8C633B40FCC /* HomeView.swift in Sources */,
 				376495AAB21453A73A20E043 /* Models.swift in Sources */,
+				4ECEBB18073864AD8DA340F3 /* RevealPasswordField.swift in Sources */,
+				F4F19EA632E3581F421243F0 /* ServerAddress.swift in Sources */,
 				30E2F6B003D955A8F7F4D1A7 /* SettingsStore.swift in Sources */,
 				6028C5198C3D77EC1B6207D4 /* SettingsView.swift in Sources */,
 				9E43EF5F0BB412BE9E399C97 /* SmsCodeExtractor.swift in Sources */,
+				54C22CC8859219A063195D0F /* SyncPasswordField.swift in Sources */,
 				5FA22DFA89011EFE9777F8F4 /* ToastManager.swift in Sources */,
+				482F06753707E7BE137C414B /* ToastStyle.swift in Sources */,
 				1453304F57067B9FC2F50F15 /* ToastView.swift in Sources */,
 				29077AC77B06B18A994A8D4A /* WSClient.swift in Sources */,
 				EE71125A91C704A9557B5F48 /* main.swift in Sources */,

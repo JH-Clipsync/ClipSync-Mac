@@ -4,7 +4,7 @@ import AppKit
 // ============================================================
 // HomeView：主页 —— 集中式控制台
 // - 顶部：大号连接状态卡（图标 + 状态文字 + 服务器地址）
-// - 中部：服务器/Token 配置（合并自设置页）
+// - 中部：服务器 + 账号登录（用户名/密码换 Token）、端到端加密密码
 // - 同步开关：自动同步剪贴板 + 接收弹窗
 // - 统计 + 最近消息
 // ============================================================
@@ -14,7 +14,8 @@ struct HomeView: View {
     @EnvironmentObject var settings: SettingsStore
     @EnvironmentObject var history: HistoryStore
 
-    @State private var revealToken = false
+    @State private var revealSyncPassword = false
+    @State private var revealLoginPassword = false
     @State private var pushToast: String? = nil
 
     var body: some View {
@@ -22,6 +23,7 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 16) {
                 statusCard
                 serverCard
+                encryptionCard
                 syncCard
                 infoGrid
                 latestSection
@@ -49,18 +51,27 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(statusText)
                     .font(.system(size: 17, weight: .semibold))
-                Text(settings.serverURL)
+                // 显示规范化后的地址，让用户看到程序实际连的是哪里
+                Text(ServerAddress.normalize(settings.serverURL).isEmpty
+                     ? "未填写服务器地址"
+                     : ServerAddress.normalize(settings.serverURL))
                     .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                if let authError = ws.authError, ws.state == .disconnected {
+                    Text(authError)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             Spacer()
 
             VStack(spacing: 6) {
                 if ws.state == .connecting {
                     Button {
-                        ws.stop()
+                        ws.disconnect()
                     } label: {
                         Label("取消", systemImage: "xmark")
                             .font(.system(size: 12))
@@ -69,7 +80,7 @@ struct HomeView: View {
                     .buttonStyle(.bordered)
                 } else if ws.state == .connected {
                     Button {
-                        ws.stop()
+                        ws.disconnect()
                     } label: {
                         Label("断开", systemImage: "bolt.slash")
                             .font(.system(size: 12))
@@ -79,7 +90,7 @@ struct HomeView: View {
                     .tint(.red)
                 } else {
                     Button {
-                        ws.start(server: settings.serverURL, token: settings.token)
+                        Task { await ws.connect(settings: settings) }
                     } label: {
                         Label("连接", systemImage: "bolt.fill")
                             .font(.system(size: 12))
@@ -87,7 +98,7 @@ struct HomeView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(.indigo)
-                    .disabled(settings.token.isEmpty)
+                    .disabled(!settings.hasCredentials)
                 }
 
                 if let toast = pushToast {
@@ -109,41 +120,137 @@ struct HomeView: View {
         )
     }
 
-    // MARK: - 服务器 / Token 配置
+    // MARK: - 服务器 / 账号
 
     private var serverCard: some View {
-        cardSection(title: "服务器", color: .blue) {
+        cardSection(title: "账号", color: .blue) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
                     Image(systemName: "network")
                         .foregroundStyle(.secondary)
                         .frame(width: 18)
-                    TextField("服务器地址 (ws://...)", text: $settings.serverURL)
+                    // 地址只填 host:port，ws:// 由 ServerAddress.normalize 补齐
+                    TextField("服务器地址，例如 192.168.1.10:8080", text: $settings.serverURL)
                         .textFieldStyle(.roundedBorder)
+                        .disabled(ws.state != .disconnected)
                 }
+                Text(resolvedServerHint)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 26)
+
+                // 账号密码常驻输入：点「连接」时才校验，没有单独的登录按钮。
+                // 账号由管理员在服务端创建，客户端不提供注册。
                 HStack(spacing: 8) {
-                    Image(systemName: "key.fill")
+                    Image(systemName: "person.fill")
                         .foregroundStyle(.secondary)
                         .frame(width: 18)
-                    Group {
-                        if revealToken {
-                            TextField("Token", text: $settings.token)
-                        } else {
-                            SecureField("Token", text: $settings.token)
-                        }
+                    TextField("用户名", text: $settings.username)
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(ws.state != .disconnected)
+                }
+                HStack(spacing: 8) {
+                    Image(systemName: "lock.fill")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 18)
+                    RevealPasswordField(
+                        title: "密码",
+                        text: $settings.password,
+                        isRevealed: $revealLoginPassword,
+                        isEnabled: ws.state == .disconnected
+                    )
+                    if settings.isLoggedIn {
+                        Image(systemName: "checkmark.seal.fill")
+                            .foregroundStyle(.green)
+                            .help("已从服务端取得 Token")
                     }
-                    .textFieldStyle(.roundedBorder)
-                    Button {
-                        revealToken.toggle()
-                    } label: {
-                        Image(systemName: revealToken ? "eye.slash.fill" : "eye.fill")
-                            .frame(width: 16)
-                    }
-                    .buttonStyle(.borderless)
-                    .help(revealToken ? "隐藏 Token" : "显示 Token")
+                }
+
+                if !settings.hasCredentials {
+                    Text("填写账号密码后点「连接」，会自动校验并取得 Token")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                if let authError = ws.authError {
+                    Label(authError, systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.orange)
                 }
             }
         }
+    }
+
+    // MARK: - 端到端加密
+
+    private var encryptionCard: some View {
+        cardSection(title: "端到端加密", color: .purple) {
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle(isOn: $settings.e2eeEnabled) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "lock.shield.fill")
+                            .foregroundStyle(.purple)
+                            .frame(width: 18)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("启用端到端加密")
+                                .font(.system(size: 13, weight: .medium))
+                            Text("用同步密码加密内容，服务端只转发密文")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .toggleStyle(.switch)
+
+                // 关闭加密时整行隐藏：明文传输下这个输入框没有意义
+                if settings.e2eeEnabled {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "key.horizontal.fill")
+                            .foregroundStyle(.secondary)
+                            .frame(width: 18)
+                        // 密码要点「确定」才保存：派生密钥很贵，不能跟着每次按键跑
+                        SyncPasswordField(
+                            settings: settings,
+                            isRevealed: $revealSyncPassword
+                        )
+                    }
+                }
+
+                encryptionStatusText
+
+                if let failure = ws.decryptFailure {
+                    Label(failure, systemImage: "lock.trianglebadge.exclamationmark.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.orange)
+                }
+            }
+        }
+    }
+
+    /// 说清当前加密状态：明文 / 内置默认密码 / 自设密码
+    @ViewBuilder
+    private var encryptionStatusText: some View {
+        if !settings.e2eeEnabled {
+            Text("加密已关闭：消息以明文传输")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        } else {
+            if settings.usingBuiltinSyncPassword {
+                Label(
+                    "未填同步密码，正在使用内置默认密码（各端通用，强度低于自设密码）",
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .font(.system(size: 11))
+                .foregroundStyle(.orange)
+            }
+            // 指纹在后台算，不阻塞 body 求值
+            FingerprintLabel(password: settings.effectiveSyncPassword)
+        }
+    }
+
+    /// 回显程序真正会连的地址，用户不用猜前缀补成了什么
+    private var resolvedServerHint: String {
+        let normalized = ServerAddress.normalize(settings.serverURL)
+        return normalized.isEmpty ? "请填写服务器地址" : "将连接 \(normalized)"
     }
 
     // MARK: - 同步开关

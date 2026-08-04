@@ -74,10 +74,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             .store(in: &cancellables)
 
-        // token 已配置 → 自动尝试连接
+        // 账号密码已填 → 自动连接（没有 token 时会先自动登录换一个）
         let s = SettingsStore.shared
-        if !s.token.isEmpty {
-            ws.start(server: s.serverURL, token: s.token)
+        if s.hasCredentials || !s.token.isEmpty {
+            Task { await ws.connect(settings: s) }
         }
 
         // 启动时直接打开主窗口
@@ -229,11 +229,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func reconnect() {
         let s = SettingsStore.shared
-        WSClient.shared.start(server: s.serverURL, token: s.token)
+        Task { await WSClient.shared.connect(settings: s) }
     }
 
     @objc func disconnect() {
-        WSClient.shared.stop()
+        Task { @MainActor in WSClient.shared.disconnect() }
     }
 
     @objc func quit() {
@@ -300,6 +300,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
     }
+
+    /// Dock / Finder 重新打开本 App 时不自动恢复窗口。
+    ///
+    /// 主窗口只应由用户显式操作（点菜单栏图标、菜单项）打开。Toast 上的
+    /// 复制按钮不该把它带出来，那会挡住用户正在输验证码的窗口。
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        false
+    }
 }
 
 // MARK: - NSWindowDelegate：关闭 = 隐藏
@@ -309,13 +317,11 @@ extension AppDelegate: NSWindowDelegate {
         if sender === mainWindow {
             sender.orderOut(nil)
             NSLog("[ClipSync] 主窗口已隐藏")
-            // 主窗口关掉 → 回到纯菜单栏应用（隐藏 Dock 图标 & 顶部菜单）
-            //   延迟一小会儿，等 orderOut 动画完成再切，避免菜单栏图标闪一下
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                if self.mainWindow?.isVisible != true {
-                    NSApp.setActivationPolicy(.accessory)
-                }
-            }
+            // 主窗口关掉 → 立刻回到纯菜单栏应用（隐藏 Dock 图标 & 顶部菜单）。
+            //
+            // 这里不能延迟：留在 .regular 的那段窗口期里，只要 App 被激活
+            // （比如点 Toast 上的复制按钮），AppKit 就会把主窗口重新带出来。
+            NSApp.setActivationPolicy(.accessory)
             return false
         }
         return true
@@ -325,6 +331,26 @@ extension AppDelegate: NSWindowDelegate {
 // ============================================================
 // 入口（纯 AppKit）
 // ============================================================
+
+// 单实例守卫。
+//
+// LaunchServices 只在"同一路径的同一 App"之间去重，从不同目录启动同一个
+// bundle（比如 Xcode 的 DerivedData 和 xcodebuild 的 -derivedDataPath）会
+// 被放行成两个进程。两份都连服务端、都监听剪贴板、都弹 Toast，消息会重复。
+// 这里按 bundle ID 自查：已经有一个在跑就把它叫到前台，自己退出。
+func terminateIfAlreadyRunning() {
+    guard let bundleID = Bundle.main.bundleIdentifier else { return }
+    let others = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+        .filter { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
+    guard let running = others.first else { return }
+
+    NSLog("[ClipSync] 已有实例在运行（pid \(running.processIdentifier)），本进程退出")
+    running.activate(options: [.activateAllWindows])
+    exit(0)
+}
+
+terminateIfAlreadyRunning()
+
 let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate

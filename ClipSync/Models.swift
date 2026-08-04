@@ -1,5 +1,17 @@
 import Foundation
 
+/// 端到端加密信封。字段与服务端 e2ee.go 的 EncEnvelope、Android 的 EncEnvelope 一一对应。
+struct EncEnvelope: Codable, Equatable {
+    var v: Int          // 协议版本
+    var alg: String     // AES-256-GCM
+    var kdf: String     // PBKDF2-HMAC-SHA256
+    var iter: Int       // KDF 迭代次数
+    var salt: String    // base64
+    var iv: String      // base64，12 字节 nonce
+    var ct: String      // base64，密文 + GCM tag
+    var fp: String      // 密钥指纹（hex 前 16 位）
+}
+
 /// 跟云端协议一致的载荷
 struct MessagePayload: Codable, Equatable {
     var text: String?
@@ -8,6 +20,9 @@ struct MessagePayload: Codable, Equatable {
     var preview: String?    // 短预览
     var kind: String?       // 业务子类型：sms_code / text / image / share ...
     var sender: String?     // 短信发件人（服务端清洗后填入，如手机号 15735961954）
+
+    /// 加密信封。非空时 text/data 等字段为空，真实内容在 enc.ct 里。
+    var enc: EncEnvelope?
 }
 
 /// 消息类型（传输通道 / 推送范围），跟服务端 TypeXxx 常量一致。
