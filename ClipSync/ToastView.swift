@@ -171,7 +171,8 @@ struct ToastView: View {
     ) -> some View {
         Text(title)
             .font(.system(size: 12, weight: primary ? .semibold : .medium))
-            .foregroundStyle(primary ? Color.white : Color.primary.opacity(0.85))
+            // 次要按钮用强调色文字配淡色底，跟主按钮构成"实心/描边"的常规组合
+            .foregroundStyle(primary ? Color.white : Color.accentColor)
             .padding(.horizontal, 12).padding(.vertical, 5)
             .background(
                 // 复制完成时压暗一档，给操作一个即时的视觉回执
@@ -182,10 +183,10 @@ struct ToastView: View {
                 )
             )
             .overlay(
-                // 次要按钮靠一道极淡描边跟背板分开，不然低透明度底色在毛玻璃上会糊
+                // 次要按钮靠一道描边跟背板分开，不然淡底色在毛玻璃上会糊
                 Capsule().strokeBorder(
                     primary ? Color.clear : ToastStyle.secondaryStroke,
-                    lineWidth: 0.5
+                    lineWidth: 1
                 )
             )
             .contentShape(Capsule())
@@ -216,8 +217,8 @@ struct ToastView: View {
             Image(nsImage: appIcon)
                 .resizable()
                 .frame(width: 34, height: 34)
-                // App 图标本身是白底浅色设计，卡片底又是近白，垫一层极淡的
-                // 靛蓝调把它从背景里分出来
+                // App 图标本身是白底浅色设计，卡片底又是近白，垫一层略暗的
+                // 中性灰把它从背景里分出来
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(ToastStyle.iconPlateFill)
@@ -226,7 +227,7 @@ struct ToastView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(ToastStyle.secondaryStroke, lineWidth: 0.5)
+                        .strokeBorder(ToastStyle.innerBorderColor, lineWidth: 0.5)
                 )
         } else {
             ZStack {

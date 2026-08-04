@@ -20,36 +20,36 @@ enum ToastStyle {
     /// 内部小卡片（图片卡、胶囊）的圆角
     static let innerCornerRadius: CGFloat = 10
 
-    /// 主按钮底色：靛蓝。
+    /// 主按钮底色：系统强调色。
     ///
-    /// 近白底 + 中性灰文字的画面里只留这一处彩色，靛蓝的明度够低，白字对比
-    /// 足够；色相偏冷，跟中性灰是同族关系，不会像纯蓝那样跳出来抢戏。
-    static let accentFill = Color(red: 0.29, green: 0.36, blue: 0.60)
-    /// 主按钮完成态：同色压暗一档，作为"已复制"的反馈
-    static let accentFillStrong = Color(red: 0.22, green: 0.28, blue: 0.49)
-    /// 次要按钮底色：极浅的靛蓝调白，跟主按钮同族但退到背景层
-    static let secondaryFill = Color(red: 0.95, green: 0.96, blue: 0.98)
-    /// 次要按钮描边：淡靛蓝，比中性灰边更协调
-    static let secondaryStroke = Color(red: 0.29, green: 0.36, blue: 0.60).opacity(0.28)
+    /// 用 .accentColor 而不是自己调色 —— 它跟随用户在「系统设置 > 外观」里
+    /// 选的强调色，默认蓝，天然是"系统按钮该有的颜色"。
+    static let accentFill = Color.accentColor
+    /// 完成态：系统绿，表示操作成功（"已复制 ✓"）
+    static let accentFillStrong = Color(nsColor: .systemGreen)
+    /// 次要按钮底色：借强调色的极低透明度，自动跟着强调色走
+    static let secondaryFill = Color.accentColor.opacity(0.10)
+    /// 次要按钮描边
+    static let secondaryStroke = Color.accentColor.opacity(0.30)
 
-    /// 图标兜底底色：拿不到 App 图标时用靛蓝渐变，跟主按钮呼应
+    /// 图标兜底底色：拿不到 App 图标时用系统蓝渐变
     static let iconGradient = LinearGradient(
         colors: [
-            Color(red: 0.38, green: 0.45, blue: 0.69),
-            Color(red: 0.25, green: 0.31, blue: 0.53)
+            Color(nsColor: .systemBlue),
+            Color(nsColor: .systemBlue).opacity(0.78)
         ],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )
 
-    /// 图片卡底色：比卡片底亮一档，用来托住图片
-    static let imageCardFill = Color(red: 0.95, green: 0.96, blue: 0.98)
+    /// 图片卡底色：比卡片底暗一档的中性灰，用来托住图片
+    static let imageCardFill = Color(white: 0.93)
 
     /// App 图标的衬底。
     ///
-    /// 图标本身是白底浅色设计，卡片底提亮到近白后，纯白衬底就分不出来了，
-    /// 改用极淡的靛蓝调，既能托住图标又跟按钮同族。
-    static let iconPlateFill = Color(red: 0.93, green: 0.95, blue: 0.98)
+    /// 图标本身是白底浅色设计，卡片底又是近白，得垫一层略暗的中性灰才能把
+    /// 它从背景里分出来。
+    static let iconPlateFill = Color(white: 0.92)
 
     /// 弹窗外描边：底色提亮后需要稍重一点的边，才能从浅色桌面上分离出来
     static let borderColor = Color(white: 0.66).opacity(0.60)
