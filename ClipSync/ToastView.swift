@@ -216,17 +216,17 @@ struct ToastView: View {
             Image(nsImage: appIcon)
                 .resizable()
                 .frame(width: 34, height: 34)
-                // App 图标本身是白底浅色设计，直接压在浅灰卡片上会糊成一片，
-                // 垫一层白底把它从背景里分出来
+                // App 图标本身是白底浅色设计，卡片底又是近白，垫一层极淡的
+                // 靛蓝调把它从背景里分出来
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color.white)
+                        .fill(ToastStyle.iconPlateFill)
                 )
                 // 先裁形，再描边：反过来描边会被裁掉一半
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(ToastStyle.innerBorderColor, lineWidth: 0.5)
+                        .strokeBorder(ToastStyle.secondaryStroke, lineWidth: 0.5)
                 )
         } else {
             ZStack {
