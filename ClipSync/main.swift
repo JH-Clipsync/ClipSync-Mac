@@ -74,10 +74,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             .store(in: &cancellables)
 
-        // token 已配置 → 自动尝试连接
+        // 账号密码已填 → 自动连接（没有 token 时会先自动登录换一个）
         let s = SettingsStore.shared
-        if !s.token.isEmpty {
-            ws.start(server: s.serverURL, token: s.token)
+        if s.hasCredentials || !s.token.isEmpty {
+            Task { await ws.connect(settings: s) }
         }
 
         // 启动时直接打开主窗口
@@ -229,7 +229,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func reconnect() {
         let s = SettingsStore.shared
-        WSClient.shared.start(server: s.serverURL, token: s.token)
+        Task { await WSClient.shared.connect(settings: s) }
     }
 
     @objc func disconnect() {

@@ -72,12 +72,6 @@ final class AuthClient {
         )
     }
 
-    /// POST /auth/register
-    func register(server: String, username: String, password: String) async throws {
-        _ = try await post(server: server, path: "/auth/register",
-                           body: ["username": username, "password": password], token: nil)
-    }
-
     /// GET /auth/session —— 启动时用它确认本地 token 还有效
     func checkSession(server: String, token: String) async throws -> Bool {
         let base = Self.httpBase(from: server)

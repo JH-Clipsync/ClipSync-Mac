@@ -16,10 +16,6 @@ struct HomeView: View {
 
     @State private var revealSyncPassword = false
     @State private var pushToast: String? = nil
-    @State private var loginPassword = ""
-    @State private var authBusy = false
-    @State private var authNotice: String?
-    @State private var authNoticeIsError = false
 
     var body: some View {
         ScrollView {
@@ -84,7 +80,7 @@ struct HomeView: View {
                     .tint(.red)
                 } else {
                     Button {
-                        ws.start(server: settings.serverURL, token: settings.token)
+                        Task { await ws.connect(settings: settings) }
                     } label: {
                         Label("连接", systemImage: "bolt.fill")
                             .font(.system(size: 12))
@@ -92,7 +88,7 @@ struct HomeView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(.indigo)
-                    .disabled(!settings.isLoggedIn)
+                    .disabled(!settings.hasCredentials)
                 }
 
                 if let toast = pushToast {
@@ -125,70 +121,37 @@ struct HomeView: View {
                         .frame(width: 18)
                     TextField("服务器地址 (ws://...)", text: $settings.serverURL)
                         .textFieldStyle(.roundedBorder)
-                        .disabled(settings.isLoggedIn)
+                        .disabled(ws.state != .disconnected)
                 }
 
-                if settings.isLoggedIn {
-                    HStack(spacing: 8) {
-                        Image(systemName: "person.crop.circle.fill.badge.checkmark")
+                // 账号密码常驻输入：点「连接」时才校验，没有单独的登录按钮。
+                // 账号由管理员在服务端创建，客户端不提供注册。
+                HStack(spacing: 8) {
+                    Image(systemName: "person.fill")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 18)
+                    TextField("用户名", text: $settings.username)
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(ws.state != .disconnected)
+                }
+                HStack(spacing: 8) {
+                    Image(systemName: "lock.fill")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 18)
+                    SecureField("密码", text: $settings.password)
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(ws.state != .disconnected)
+                    if settings.isLoggedIn {
+                        Image(systemName: "checkmark.seal.fill")
                             .foregroundStyle(.green)
-                            .frame(width: 18)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(settings.username)
-                                .font(.system(size: 13, weight: .medium))
-                            Text("Token 由服务端签发，已保存在本机")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Button {
-                            Task { await logout() }
-                        } label: {
-                            Label("退出登录", systemImage: "rectangle.portrait.and.arrow.right")
-                                .font(.system(size: 12))
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(authBusy)
-                    }
-                } else {
-                    HStack(spacing: 8) {
-                        Image(systemName: "person.fill")
-                            .foregroundStyle(.secondary)
-                            .frame(width: 18)
-                        TextField("用户名", text: $settings.username)
-                            .textFieldStyle(.roundedBorder)
-                    }
-                    HStack(spacing: 8) {
-                        Image(systemName: "lock.fill")
-                            .foregroundStyle(.secondary)
-                            .frame(width: 18)
-                        SecureField("密码", text: $loginPassword)
-                            .textFieldStyle(.roundedBorder)
-                        Button {
-                            Task { await login() }
-                        } label: {
-                            HStack(spacing: 4) {
-                                if authBusy {
-                                    ProgressView().controlSize(.small).scaleEffect(0.6)
-                                } else {
-                                    Image(systemName: "person.badge.key")
-                                }
-                                Text("登录")
-                            }
-                            .font(.system(size: 12))
-                            .frame(minWidth: 62)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.blue)
-                        .disabled(authBusy || settings.username.isEmpty || loginPassword.isEmpty)
+                            .help("已从服务端取得 Token")
                     }
                 }
 
-                if let notice = authNotice {
-                    Label(notice, systemImage: authNoticeIsError
-                          ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
+                if !settings.hasCredentials {
+                    Text("填写账号密码后点「连接」，会自动校验并取得 Token")
                         .font(.system(size: 11))
-                        .foregroundStyle(authNoticeIsError ? .red : .green)
+                        .foregroundStyle(.secondary)
                 }
                 if let authError = ws.authError {
                     Label(authError, systemImage: "exclamationmark.triangle.fill")
@@ -256,43 +219,6 @@ struct HomeView: View {
                 }
             }
         }
-    }
-
-    // MARK: - 登录动作
-
-    private func login() async {
-        authBusy = true
-        defer { authBusy = false }
-        do {
-            let session = try await AuthClient.shared.login(
-                server: settings.serverURL,
-                username: settings.username,
-                password: loginPassword
-            )
-            settings.token = session.token
-            settings.username = session.username
-            loginPassword = ""
-            authNoticeIsError = false
-            authNotice = session.reused
-                ? "登录成功：已有 \(session.onlineDevices) 台设备在线，复用同一 Token"
-                : "登录成功：已签发新 Token"
-            ws.start(server: settings.serverURL, token: session.token)
-        } catch {
-            authNoticeIsError = true
-            authNotice = error.localizedDescription
-        }
-    }
-
-    private func logout() async {
-        authBusy = true
-        defer { authBusy = false }
-        let server = settings.serverURL
-        let token = settings.token
-        ws.stop()
-        settings.token = ""
-        authNoticeIsError = false
-        authNotice = "已退出登录"
-        try? await AuthClient.shared.logout(server: server, token: token)
     }
 
     // MARK: - 同步开关

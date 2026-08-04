@@ -11,17 +11,7 @@ struct SettingsView: View {
     @EnvironmentObject var settings: SettingsStore
     @EnvironmentObject var ws: WSClient
 
-    @State private var password = ""
     @State private var revealSyncPassword = false
-    @State private var busy = false
-    @State private var message: StatusMessage?
-
-    /// 操作结果提示，成功和失败用不同颜色
-    private struct StatusMessage: Identifiable {
-        let id = UUID()
-        let text: String
-        let isError: Bool
-    }
 
     var body: some View {
         Form {
@@ -54,82 +44,58 @@ struct SettingsView: View {
     private var connectionSection: some View {
         Section("账号") {
             TextField("服务器地址", text: $settings.serverURL)
-                .disabled(settings.isLoggedIn)
+                .disabled(ws.state != .disconnected)
 
-            if settings.isLoggedIn {
-                LabeledContent("已登录", value: settings.username)
-                HStack(spacing: 10) {
-                    Button {
-                        ws.start(server: settings.serverURL, token: settings.token)
-                    } label: {
-                        HStack(spacing: 6) {
-                            if ws.state == .connecting {
-                                ProgressView().controlSize(.small).scaleEffect(0.7)
-                                Text("连接中…")
-                            } else {
-                                Image(systemName: "bolt.horizontal.fill")
-                                Text("连接")
-                            }
+            // 账号密码常驻显示：连接时才做校验，所以没有单独的「登录」按钮。
+            // 账号由管理员在服务端创建，客户端不提供注册入口。
+            TextField("用户名", text: $settings.username)
+                .disabled(ws.state != .disconnected)
+            SecureField("密码", text: $settings.password)
+                .disabled(ws.state != .disconnected)
+
+            HStack(spacing: 10) {
+                Button {
+                    Task { await ws.connect(settings: settings) }
+                } label: {
+                    HStack(spacing: 6) {
+                        if ws.state == .connecting {
+                            ProgressView().controlSize(.small).scaleEffect(0.7)
+                            Text("连接中…")
+                        } else {
+                            Image(systemName: "bolt.horizontal.fill")
+                            Text("连接")
                         }
-                        .frame(minWidth: 80)
                     }
-                    .disabled(ws.state != .disconnected)
-
-                    Button {
-                        ws.stop()
-                    } label: {
-                        Label("断开", systemImage: "xmark.circle")
-                    }
-                    .disabled(ws.state == .disconnected)
-
-                    Spacer()
-
-                    Button(role: .destructive) {
-                        Task { await logout() }
-                    } label: {
-                        Label("退出登录", systemImage: "rectangle.portrait.and.arrow.right")
-                    }
-                    .disabled(busy)
+                    .frame(minWidth: 80)
                 }
-            } else {
-                TextField("用户名", text: $settings.username)
-                SecureField("密码", text: $password)
+                .disabled(ws.state != .disconnected || !settings.hasCredentials)
 
-                HStack(spacing: 10) {
-                    Button {
-                        Task { await login() }
-                    } label: {
-                        HStack(spacing: 6) {
-                            if busy {
-                                ProgressView().controlSize(.small).scaleEffect(0.7)
-                            } else {
-                                Image(systemName: "person.badge.key")
-                            }
-                            Text("登录")
-                        }
-                        .frame(minWidth: 80)
-                    }
-                    .disabled(busy || settings.username.isEmpty || password.isEmpty)
-
-                    Button {
-                        Task { await register() }
-                    } label: {
-                        Label("注册", systemImage: "person.badge.plus")
-                    }
-                    .disabled(busy || settings.username.isEmpty || password.isEmpty)
+                Button {
+                    ws.stop()
+                } label: {
+                    Label("断开", systemImage: "xmark.circle")
                 }
+                .disabled(ws.state == .disconnected)
+
+                Spacer()
+
+                if settings.isLoggedIn {
+                    Label("Token 已签发", systemImage: "checkmark.seal.fill")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                }
+            }
+
+            if !settings.hasCredentials {
+                Text("请填写用户名和密码（账号由管理员创建）")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             if let authError = ws.authError {
                 Label(authError, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
                     .foregroundStyle(.orange)
-            }
-            if let message {
-                Label(message.text, systemImage: message.isError
-                      ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
-                    .font(.caption)
-                    .foregroundStyle(message.isError ? .red : .green)
             }
         }
     }
@@ -179,54 +145,4 @@ struct SettingsView: View {
 
     // MARK: - 动作
 
-    private func login() async {
-        busy = true
-        defer { busy = false }
-        do {
-            let session = try await AuthClient.shared.login(
-                server: settings.serverURL,
-                username: settings.username,
-                password: password
-            )
-            settings.token = session.token
-            settings.username = session.username
-            password = ""
-            message = StatusMessage(
-                text: session.reused
-                    ? "登录成功：已有 \(session.onlineDevices) 台设备在线，复用同一 Token"
-                    : "登录成功：已为本次登录签发新 Token",
-                isError: false
-            )
-            ws.start(server: settings.serverURL, token: session.token)
-        } catch {
-            message = StatusMessage(text: error.localizedDescription, isError: true)
-        }
-    }
-
-    private func register() async {
-        busy = true
-        defer { busy = false }
-        do {
-            try await AuthClient.shared.register(
-                server: settings.serverURL,
-                username: settings.username,
-                password: password
-            )
-            message = StatusMessage(text: "注册成功，请点「登录」", isError: false)
-        } catch {
-            message = StatusMessage(text: error.localizedDescription, isError: true)
-        }
-    }
-
-    private func logout() async {
-        busy = true
-        defer { busy = false }
-        let server = settings.serverURL
-        let token = settings.token
-        ws.stop()
-        settings.token = ""
-        message = StatusMessage(text: "已退出登录", isError: false)
-        // 通知服务端作废会话；失败也不影响本地已登出的事实
-        try? await AuthClient.shared.logout(server: server, token: token)
-    }
 }

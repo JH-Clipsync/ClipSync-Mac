@@ -43,6 +43,50 @@ final class WSClient: ObservableObject {
 
     // MARK: - 连接控制
 
+    /// 统一的连接入口：没有 token 就先用账号密码换一个，再建立 WebSocket。
+    ///
+    /// 这样界面上只需要一个「连接」按钮，不必让用户先点「登录」再点「连接」。
+    /// 只在本地没有 token 时才打 /auth/login，避免每次重连都去撞登录限流；
+    /// token 失效由 WS 握手的 401 触发重新换取。
+    @MainActor
+    func connect(settings: SettingsStore) async {
+        let server = settings.serverURL
+
+        if !settings.token.isEmpty {
+            start(server: server, token: settings.token)
+            return
+        }
+        guard settings.hasCredentials else {
+            authError = "请先填写用户名和密码"
+            return
+        }
+
+        state = .connecting
+        authError = nil
+        do {
+            let session = try await AuthClient.shared.login(
+                server: server,
+                username: settings.username,
+                password: settings.password
+            )
+            settings.token = session.token
+            settings.username = session.username
+            NSLog("[WS] 🔑 连接前自动登录成功：reused=\(session.reused) 在线 \(session.onlineDevices) 台")
+            start(server: server, token: session.token)
+        } catch {
+            state = .disconnected
+            authError = error.localizedDescription
+            NSLog("[WS] ✗ 自动登录失败: \(error.localizedDescription)")
+        }
+    }
+
+    /// token 失效后重新换一个并接着连。密码存在本地，用户无需干预。
+    @MainActor
+    func reauthenticate(settings: SettingsStore) async {
+        settings.token = ""
+        await connect(settings: settings)
+    }
+
     /// 启动连接。相同 server + token + isRunning 时直接跳过（防抖）
     func start(server: String, token: String) {
         if isRunning && server == currentServer && token == currentToken {
@@ -232,8 +276,16 @@ final class WSClient: ObservableObject {
             || ns.code == 401
         guard looksLikeAuth else { return }
         DispatchQueue.main.async {
-            self.authError = "登录已失效，请重新登录"
-            NSLog("[WS] 🔒 token 已失效，需要重新登录")
+            NSLog("[WS] 🔒 token 已失效，尝试用已保存的账号密码重新换取")
+            let settings = SettingsStore.shared
+            guard settings.hasCredentials else {
+                self.authError = "登录已失效，请到设置里填写账号密码"
+                return
+            }
+            // 密码存在本地，这里悄悄换一个新 token 接着连，用户不用干预。
+            // 先停掉当前重试循环，避免和 connect() 里的新连接打架。
+            self.stop()
+            Task { await self.reauthenticate(settings: settings) }
         }
     }
 
