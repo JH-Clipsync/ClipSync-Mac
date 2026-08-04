@@ -15,6 +15,7 @@ struct HomeView: View {
     @EnvironmentObject var history: HistoryStore
 
     @State private var revealSyncPassword = false
+    @State private var revealLoginPassword = false
     @State private var pushToast: String? = nil
 
     var body: some View {
@@ -138,9 +139,12 @@ struct HomeView: View {
                     Image(systemName: "lock.fill")
                         .foregroundStyle(.secondary)
                         .frame(width: 18)
-                    SecureField("密码", text: $settings.password)
-                        .textFieldStyle(.roundedBorder)
-                        .disabled(ws.state != .disconnected)
+                    RevealPasswordField(
+                        title: "密码",
+                        text: $settings.password,
+                        isRevealed: $revealLoginPassword,
+                        isEnabled: ws.state == .disconnected
+                    )
                     if settings.isLoggedIn {
                         Image(systemName: "checkmark.seal.fill")
                             .foregroundStyle(.green)
@@ -187,23 +191,12 @@ struct HomeView: View {
                     Image(systemName: "key.horizontal.fill")
                         .foregroundStyle(.secondary)
                         .frame(width: 18)
-                    Group {
-                        if revealSyncPassword {
-                            TextField("同步密码（两端需一致）", text: $settings.syncPassword)
-                        } else {
-                            SecureField("同步密码（两端需一致）", text: $settings.syncPassword)
-                        }
-                    }
-                    .textFieldStyle(.roundedBorder)
-                    .disabled(!settings.e2eeEnabled)
-                    Button {
-                        revealSyncPassword.toggle()
-                    } label: {
-                        Image(systemName: revealSyncPassword ? "eye.slash.fill" : "eye.fill")
-                            .frame(width: 16)
-                    }
-                    .buttonStyle(.borderless)
-                    .help(revealSyncPassword ? "隐藏同步密码" : "显示同步密码")
+                    RevealPasswordField(
+                        title: "同步密码（两端需一致）",
+                        text: $settings.syncPassword,
+                        isRevealed: $revealSyncPassword,
+                        isEnabled: settings.e2eeEnabled
+                    )
                 }
 
                 if settings.encryptionActive,

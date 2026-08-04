@@ -12,6 +12,7 @@ struct SettingsView: View {
     @EnvironmentObject var ws: WSClient
 
     @State private var revealSyncPassword = false
+    @State private var revealLoginPassword = false
 
     var body: some View {
         Form {
@@ -50,8 +51,12 @@ struct SettingsView: View {
             // 账号由管理员在服务端创建，客户端不提供注册入口。
             TextField("用户名", text: $settings.username)
                 .disabled(ws.state != .disconnected)
-            SecureField("密码", text: $settings.password)
-                .disabled(ws.state != .disconnected)
+            RevealPasswordField(
+                title: "密码",
+                text: $settings.password,
+                isRevealed: $revealLoginPassword,
+                isEnabled: ws.state == .disconnected
+            )
 
             HStack(spacing: 10) {
                 Button {
@@ -107,26 +112,12 @@ struct SettingsView: View {
         Section("端到端加密") {
             Toggle("启用端到端加密", isOn: $settings.e2eeEnabled)
 
-            HStack(spacing: 6) {
-                Group {
-                    if revealSyncPassword {
-                        TextField("同步密码", text: $settings.syncPassword)
-                    } else {
-                        SecureField("同步密码", text: $settings.syncPassword)
-                    }
-                }
-                .textFieldStyle(.roundedBorder)
-                .disabled(!settings.e2eeEnabled)
-
-                Button {
-                    revealSyncPassword.toggle()
-                } label: {
-                    Image(systemName: revealSyncPassword ? "eye.slash.fill" : "eye.fill")
-                        .frame(width: 18, height: 18)
-                }
-                .buttonStyle(.borderless)
-                .help(revealSyncPassword ? "隐藏同步密码" : "显示同步密码")
-            }
+            RevealPasswordField(
+                title: "同步密码",
+                text: $settings.syncPassword,
+                isRevealed: $revealSyncPassword,
+                isEnabled: settings.e2eeEnabled
+            )
 
             if settings.encryptionActive,
                let fp = PayloadCipher.fingerprint(password: settings.syncPassword) {
