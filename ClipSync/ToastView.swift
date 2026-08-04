@@ -53,14 +53,23 @@ struct ToastView: View {
         .padding(.vertical, 12)
         .frame(width: windowWidth, alignment: .topLeading)
         .background(
-            VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            ZStack {
+                VisualEffectBlur(
+                    material: .hudWindow,
+                    blendingMode: .behindWindow,
+                    cornerRadius: ToastStyle.cornerRadius
+                )
+                // 毛玻璃本身是零饱和的纯灰，叠一层冷调把背板也拉进同一色系
+                ToastStyle.backdropTint
+            }
+            .clipShape(RoundedRectangle(cornerRadius: ToastStyle.cornerRadius, style: .continuous))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(.white.opacity(0.08), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: ToastStyle.cornerRadius, style: .continuous)
+                .strokeBorder(ToastStyle.borderColor, lineWidth: 0.5)
         )
-        .shadow(color: .black.opacity(0.20), radius: 20, y: 6)
+        .clipShape(RoundedRectangle(cornerRadius: ToastStyle.cornerRadius, style: .continuous))
+        .shadow(color: ToastStyle.shadowColor, radius: 20, y: 6)
     }
 
     private var isImage: Bool {
@@ -129,18 +138,19 @@ struct ToastView: View {
     private var actionRow: some View {
         HStack(spacing: 6) {
             if let code = extractedCode {
-                pill(title: codeCopied ? "已复制 \(code) ✓" : "复制 \(code)", primary: true) {
+                pill(title: codeCopied ? "已复制 \(code) ✓" : "复制 \(code)",
+                     primary: true, done: codeCopied) {
                     onCopyCode()
                     codeCopied = true
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { codeCopied = false }
                 }
-                pill(title: allCopied ? "✓" : "全文", primary: false) {
+                pill(title: allCopied ? "✓" : "全文", primary: false, done: allCopied) {
                     onCopyAll()
                     allCopied = true
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { allCopied = false }
                 }
             } else {
-                pill(title: allCopied ? "已复制 ✓" : "复制", primary: true) {
+                pill(title: allCopied ? "已复制 ✓" : "复制", primary: true, done: allCopied) {
                     onCopyAll()
                     allCopied = true
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { allCopied = false }
@@ -152,12 +162,31 @@ struct ToastView: View {
     }
 
     /// 胶囊按钮（用 onTapGesture 而非 Button，避免 SwiftUI 自动激活 App）
-    private func pill(title: String, primary: Bool, action: @escaping () -> Void) -> some View {
+    private func pill(
+        title: String,
+        primary: Bool,
+        done: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
         Text(title)
             .font(.system(size: 12, weight: primary ? .semibold : .medium))
-            .foregroundStyle(primary ? Color.white : Color.primary.opacity(0.9))
+            .foregroundStyle(primary ? Color.white : Color.primary.opacity(0.85))
             .padding(.horizontal, 12).padding(.vertical, 5)
-            .background(Capsule().fill(primary ? Color.accentColor : Color.primary.opacity(0.10)))
+            .background(
+                // 复制完成时压暗一档，给操作一个即时的视觉回执
+                Capsule().fill(
+                    primary
+                        ? (done ? ToastStyle.accentFillStrong : ToastStyle.accentFill)
+                        : ToastStyle.secondaryFill
+                )
+            )
+            .overlay(
+                // 次要按钮靠一道极淡描边跟背板分开，不然低透明度底色在毛玻璃上会糊
+                Capsule().strokeBorder(
+                    primary ? Color.clear : ToastStyle.innerBorderColor,
+                    lineWidth: 0.5
+                )
+            )
             .contentShape(Capsule())
             .onTapGesture { action() }
     }
@@ -165,10 +194,7 @@ struct ToastView: View {
     private var iconView: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(LinearGradient(
-                    colors: [Color(nsColor: .systemBlue), Color(nsColor: .systemIndigo)],
-                    startPoint: .topLeading, endPoint: .bottomTrailing
-                ))
+                .fill(ToastStyle.iconGradient)
             Image(systemName: iconName)
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(.white)
@@ -178,7 +204,7 @@ struct ToastView: View {
 
     // MARK: - content helpers
 
-    /// 内容区：图片消息用白底卡片按图片实际比例包裹（小图小卡、长图窄卡，
+    /// 内容区：图片消息用浅灰卡片按图片实际比例包裹（小图小卡、长图窄卡，
     /// 不再拉成满宽空白），其余显示文字
     @ViewBuilder
     private var rowBody: some View {
@@ -190,14 +216,14 @@ struct ToastView: View {
                     .frame(width: s.width, height: s.height)
                     .padding(10)
                     .background(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(Color.white)
+                        RoundedRectangle(cornerRadius: ToastStyle.innerCornerRadius, style: .continuous)
+                            .fill(ToastStyle.imageCardFill)
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .strokeBorder(Color.black.opacity(0.08), lineWidth: 0.5)
+                        RoundedRectangle(cornerRadius: ToastStyle.innerCornerRadius, style: .continuous)
+                            .strokeBorder(ToastStyle.innerBorderColor, lineWidth: 0.5)
                     )
-                    .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .contentShape(RoundedRectangle(cornerRadius: ToastStyle.innerCornerRadius, style: .continuous))
                     .onTapGesture { ImagePreviewWindows.show(image: img) }
                     .help("点击预览大图")
                 HStack {
@@ -278,6 +304,12 @@ struct ToastView: View {
 struct VisualEffectBlur: NSViewRepresentable {
     let material: NSVisualEffectView.Material
     let blendingMode: NSVisualEffectView.BlendingMode
+    /// 圆角半径。
+    ///
+    /// NSVisualEffectView 是 AppKit 视图，SwiftUI 的 .clipShape 只裁 SwiftUI
+    /// 自己的绘制，管不住它 —— 材质会溢到方形的四个角上，于是弹窗看起来
+    /// "有时圆角有时方角"。必须让这个视图自己带圆角遮罩。
+    var cornerRadius: CGFloat = 0
 
     func makeNSView(context: Context) -> NSVisualEffectView {
         let v = NSVisualEffectView()
@@ -285,11 +317,18 @@ struct VisualEffectBlur: NSViewRepresentable {
         v.blendingMode = blendingMode
         v.state = .active
         v.isEmphasized = true
+        v.wantsLayer = true
+        v.layer?.cornerRadius = cornerRadius
+        v.layer?.cornerCurve = .continuous
+        v.layer?.masksToBounds = true
         return v
     }
 
     func updateNSView(_ v: NSVisualEffectView, context: Context) {
         v.material = material
         v.blendingMode = blendingMode
+        v.layer?.cornerRadius = cornerRadius
+        v.layer?.cornerCurve = .continuous
+        v.layer?.masksToBounds = true
     }
 }

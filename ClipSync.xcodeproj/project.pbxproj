@@ -12,6 +12,7 @@
 		29077AC77B06B18A994A8D4A /* WSClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = F31A64A6C24C3BA7BE2F5F1A /* WSClient.swift */; };
 		30E2F6B003D955A8F7F4D1A7 /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31ADB70BAEDA4189C77EE9E9 /* SettingsStore.swift */; };
 		376495AAB21453A73A20E043 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDA17BC82E58AEE55A4E6B79 /* Models.swift */; };
+		482F06753707E7BE137C414B /* ToastStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB9BD95881A0BB7E4CA92FFF /* ToastStyle.swift */; };
 		4855ED325DFFEBFFF514C465 /* E2EEEnvelope.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB8C0E0883F820B0BBB3ABFF /* E2EEEnvelope.swift */; };
 		4ECEBB18073864AD8DA340F3 /* RevealPasswordField.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5EFE53E454321AA92DC9CE1 /* RevealPasswordField.swift */; };
 		53447D2859A6B14EDC992599 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = ED838D6851172B5669A1D8C1 /* Assets.xcassets */; };
@@ -55,6 +56,7 @@
 		F10A29A5E54C1017FCEDC327 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		F31A64A6C24C3BA7BE2F5F1A /* WSClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WSClient.swift; sourceTree = "<group>"; };
 		F5EFE53E454321AA92DC9CE1 /* RevealPasswordField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RevealPasswordField.swift; sourceTree = "<group>"; };
+		FB9BD95881A0BB7E4CA92FFF /* ToastStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToastStyle.swift; sourceTree = "<group>"; };
 		FFBEE31533A90D728F521B38 /* AuthClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthClient.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -99,6 +101,7 @@
 				BDFEA81C63A3D5BE482AEBB0 /* SmsCodeExtractor.swift */,
 				AFF89E75BF1FBB92309E8E43 /* SyncPasswordField.swift */,
 				B2E5D59E8B63F7472FCEF012 /* ToastManager.swift */,
+				FB9BD95881A0BB7E4CA92FFF /* ToastStyle.swift */,
 				BB8C7743EFF7F41BC6809591 /* ToastView.swift */,
 				F31A64A6C24C3BA7BE2F5F1A /* WSClient.swift */,
 			);
@@ -193,6 +196,7 @@
 				9E43EF5F0BB412BE9E399C97 /* SmsCodeExtractor.swift in Sources */,
 				54C22CC8859219A063195D0F /* SyncPasswordField.swift in Sources */,
 				5FA22DFA89011EFE9777F8F4 /* ToastManager.swift in Sources */,
+				482F06753707E7BE137C414B /* ToastStyle.swift in Sources */,
 				1453304F57067B9FC2F50F15 /* ToastView.swift in Sources */,
 				29077AC77B06B18A994A8D4A /* WSClient.swift in Sources */,
 				EE71125A91C704A9557B5F48 /* main.swift in Sources */,

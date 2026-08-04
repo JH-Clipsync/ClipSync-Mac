@@ -76,6 +76,12 @@ final class ToastManager {
         // NSHostingView 会根据 SwiftUI 内容计算 fittingSize，我们用它做窗口大小
         let hosting = NSHostingView(rootView: content)
         hosting.translatesAutoresizingMaskIntoConstraints = false
+        // 承载视图自己也要带圆角：SwiftUI 里的 clipShape 管不到 AppKit 层，
+        // 漏出来的方角就是"有时圆角有时方角"的由来
+        hosting.wantsLayer = true
+        hosting.layer?.cornerRadius = ToastStyle.cornerRadius
+        hosting.layer?.cornerCurve = .continuous
+        hosting.layer?.masksToBounds = true
         win.contentView = hosting
         // 先给定初始宽度让 SwiftUI 按 windowWidth 布局，再量高度
         hosting.frame = NSRect(x: 0, y: 0, width: content.windowWidth, height: 200)
