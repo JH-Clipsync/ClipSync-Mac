@@ -18,6 +18,12 @@ final class WSClient: ObservableObject {
     @Published var lastMessage: SyncMessage?
     @Published var history: [SyncMessage] = []
 
+    /// 最近一次连接被服务端拒绝的原因（token 失效时提示用户重新登录）
+    @Published var authError: String?
+
+    /// 收到了解不开的密文（两端同步密码不一致）时置位，UI 据此提示
+    @Published var decryptFailure: String?
+
     /// 本机设备 ID（每次启动生成一次）
     let deviceID: String = "mac-\(UUID().uuidString.prefix(8))"
 
@@ -58,6 +64,7 @@ final class WSClient: ObservableObject {
         currentServer = server
         currentToken = token
         state = .connecting
+        authError = nil
         connectingSince = Date()
 
         session = URLSession(configuration: .default)
@@ -107,7 +114,13 @@ final class WSClient: ObservableObject {
     }
 
     private func send(_ msg: SyncMessage) {
-        guard let data = try? JSONEncoder().encode(msg),
+        // 发送前按需加密：settings.encryptionActive 时把 payload 换成信封
+        var outgoing = msg
+        let settings = SettingsStore.shared
+        if settings.encryptionActive {
+            outgoing.payload = PayloadCipher.encrypt(msg.payload, password: settings.syncPassword)
+        }
+        guard let data = try? JSONEncoder().encode(outgoing),
               let text = String(data: data, encoding: .utf8) else {
             NSLog("[WS] 发送失败：编码错误")
             return
@@ -116,7 +129,7 @@ final class WSClient: ObservableObject {
             if let err = err {
                 NSLog("[WS] 发送失败: \(err.localizedDescription)")
             } else {
-                NSLog("[WS] ↑ 已发送 \(msg.type)")
+                NSLog("[WS] ↑ 已发送 \(outgoing.type)\(settings.encryptionActive ? " (已加密)" : "")")
             }
         }
     }
@@ -129,6 +142,7 @@ final class WSClient: ObservableObject {
             switch result {
             case .failure(let err):
                 NSLog("[WS] ✗ 接收错误: \(err.localizedDescription)")
+                self.noteAuthFailureIfNeeded(err)
                 self.scheduleReconnect()
             case .success(let msg):
                 switch msg {
@@ -151,12 +165,31 @@ final class WSClient: ObservableObject {
         // 过滤自己发的消息（避免自己收到自己）
         if msg.from == deviceID { return }
 
-        NSLog("[WS] ↓ 收到 \(msg.type)")
+        // 密文消息：用本机同步密码解开；解不开就只提示，不把密文塞进历史
+        var resolved = msg
+        let settings = SettingsStore.shared
+        switch PayloadCipher.decrypt(msg.payload, password: settings.syncPassword) {
+        case .plaintext:
+            NSLog("[WS] ↓ 收到 \(msg.type)")
+        case .decrypted(let plain):
+            resolved.payload = plain
+            NSLog("[WS] ↓ 收到 \(msg.type) (已解密)")
+        case .failed(let fingerprint):
+            let localFP = PayloadCipher.fingerprint(password: settings.syncPassword) ?? "未设置"
+            NSLog("[WS] ✗ 解密失败 对端 key=\(fingerprint) 本机 key=\(localFP)")
+            DispatchQueue.main.async {
+                self.state = .connected
+                self.decryptFailure = "收到无法解密的消息：请确认两端「同步密码」填写一致"
+            }
+            return
+        }
+
         DispatchQueue.main.async {
             self.state = .connected
-            self.history.insert(msg, at: 0)
+            self.decryptFailure = nil
+            self.history.insert(resolved, at: 0)
             if self.history.count > 200 { self.history.removeLast() }
-            self.lastMessage = msg
+            self.lastMessage = resolved
         }
     }
 
@@ -177,6 +210,7 @@ final class WSClient: ObservableObject {
                 guard let self, self.isRunning else { return }
                 if let err = err {
                     NSLog("[WS] ⚠ ping 失败: \(err.localizedDescription)")
+                    self.noteAuthFailureIfNeeded(err)
                     if self.state != .disconnected { self.scheduleReconnect() }
                 } else if self.state != .connected {
                     self.state = .connected
@@ -184,6 +218,22 @@ final class WSClient: ObservableObject {
                     NSLog("[WS] 🟢 已连接服务器")
                 }
             }
+        }
+    }
+
+    // MARK: - 鉴权失败识别
+
+    /// 服务端在 token 失效时用 HTTP 401 拒绝 WS 升级，URLSession 会把它
+    /// 报成握手错误。这里把它翻译成一句用户能看懂的提示。
+    private func noteAuthFailureIfNeeded(_ error: Error) {
+        let ns = error as NSError
+        let desc = ns.localizedDescription
+        let looksLikeAuth = desc.contains("401") || desc.contains("Unauthorized")
+            || ns.code == 401
+        guard looksLikeAuth else { return }
+        DispatchQueue.main.async {
+            self.authError = "登录已失效，请重新登录"
+            NSLog("[WS] 🔒 token 已失效，需要重新登录")
         }
     }
 

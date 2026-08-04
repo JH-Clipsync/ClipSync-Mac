@@ -4,7 +4,7 @@ import AppKit
 // ============================================================
 // HomeView：主页 —— 集中式控制台
 // - 顶部：大号连接状态卡（图标 + 状态文字 + 服务器地址）
-// - 中部：服务器/Token 配置（合并自设置页）
+// - 中部：服务器 + 账号登录（用户名/密码换 Token）、端到端加密密码
 // - 同步开关：自动同步剪贴板 + 接收弹窗
 // - 统计 + 最近消息
 // ============================================================
@@ -14,14 +14,19 @@ struct HomeView: View {
     @EnvironmentObject var settings: SettingsStore
     @EnvironmentObject var history: HistoryStore
 
-    @State private var revealToken = false
+    @State private var revealSyncPassword = false
     @State private var pushToast: String? = nil
+    @State private var loginPassword = ""
+    @State private var authBusy = false
+    @State private var authNotice: String?
+    @State private var authNoticeIsError = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 statusCard
                 serverCard
+                encryptionCard
                 syncCard
                 infoGrid
                 latestSection
@@ -87,7 +92,7 @@ struct HomeView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(.indigo)
-                    .disabled(settings.token.isEmpty)
+                    .disabled(!settings.isLoggedIn)
                 }
 
                 if let toast = pushToast {
@@ -109,10 +114,10 @@ struct HomeView: View {
         )
     }
 
-    // MARK: - 服务器 / Token 配置
+    // MARK: - 服务器 / 账号
 
     private var serverCard: some View {
-        cardSection(title: "服务器", color: .blue) {
+        cardSection(title: "账号", color: .blue) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
                     Image(systemName: "network")
@@ -120,30 +125,174 @@ struct HomeView: View {
                         .frame(width: 18)
                     TextField("服务器地址 (ws://...)", text: $settings.serverURL)
                         .textFieldStyle(.roundedBorder)
+                        .disabled(settings.isLoggedIn)
                 }
-                HStack(spacing: 8) {
-                    Image(systemName: "key.fill")
-                        .foregroundStyle(.secondary)
-                        .frame(width: 18)
-                    Group {
-                        if revealToken {
-                            TextField("Token", text: $settings.token)
-                        } else {
-                            SecureField("Token", text: $settings.token)
+
+                if settings.isLoggedIn {
+                    HStack(spacing: 8) {
+                        Image(systemName: "person.crop.circle.fill.badge.checkmark")
+                            .foregroundStyle(.green)
+                            .frame(width: 18)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(settings.username)
+                                .font(.system(size: 13, weight: .medium))
+                            Text("Token 由服务端签发，已保存在本机")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
                         }
+                        Spacer()
+                        Button {
+                            Task { await logout() }
+                        } label: {
+                            Label("退出登录", systemImage: "rectangle.portrait.and.arrow.right")
+                                .font(.system(size: 12))
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(authBusy)
                     }
-                    .textFieldStyle(.roundedBorder)
-                    Button {
-                        revealToken.toggle()
-                    } label: {
-                        Image(systemName: revealToken ? "eye.slash.fill" : "eye.fill")
-                            .frame(width: 16)
+                } else {
+                    HStack(spacing: 8) {
+                        Image(systemName: "person.fill")
+                            .foregroundStyle(.secondary)
+                            .frame(width: 18)
+                        TextField("用户名", text: $settings.username)
+                            .textFieldStyle(.roundedBorder)
                     }
-                    .buttonStyle(.borderless)
-                    .help(revealToken ? "隐藏 Token" : "显示 Token")
+                    HStack(spacing: 8) {
+                        Image(systemName: "lock.fill")
+                            .foregroundStyle(.secondary)
+                            .frame(width: 18)
+                        SecureField("密码", text: $loginPassword)
+                            .textFieldStyle(.roundedBorder)
+                        Button {
+                            Task { await login() }
+                        } label: {
+                            HStack(spacing: 4) {
+                                if authBusy {
+                                    ProgressView().controlSize(.small).scaleEffect(0.6)
+                                } else {
+                                    Image(systemName: "person.badge.key")
+                                }
+                                Text("登录")
+                            }
+                            .font(.system(size: 12))
+                            .frame(minWidth: 62)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.blue)
+                        .disabled(authBusy || settings.username.isEmpty || loginPassword.isEmpty)
+                    }
+                }
+
+                if let notice = authNotice {
+                    Label(notice, systemImage: authNoticeIsError
+                          ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(authNoticeIsError ? .red : .green)
+                }
+                if let authError = ws.authError {
+                    Label(authError, systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.orange)
                 }
             }
         }
+    }
+
+    // MARK: - 端到端加密
+
+    private var encryptionCard: some View {
+        cardSection(title: "端到端加密", color: .purple) {
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle(isOn: $settings.e2eeEnabled) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "lock.shield.fill")
+                            .foregroundStyle(.purple)
+                            .frame(width: 18)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("启用端到端加密")
+                                .font(.system(size: 13, weight: .medium))
+                            Text("用同步密码加密内容，服务端只转发密文")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .toggleStyle(.switch)
+
+                HStack(spacing: 8) {
+                    Image(systemName: "key.horizontal.fill")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 18)
+                    Group {
+                        if revealSyncPassword {
+                            TextField("同步密码（两端需一致）", text: $settings.syncPassword)
+                        } else {
+                            SecureField("同步密码（两端需一致）", text: $settings.syncPassword)
+                        }
+                    }
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(!settings.e2eeEnabled)
+                    Button {
+                        revealSyncPassword.toggle()
+                    } label: {
+                        Image(systemName: revealSyncPassword ? "eye.slash.fill" : "eye.fill")
+                            .frame(width: 16)
+                    }
+                    .buttonStyle(.borderless)
+                    .help(revealSyncPassword ? "隐藏同步密码" : "显示同步密码")
+                }
+
+                if settings.encryptionActive,
+                   let fp = PayloadCipher.fingerprint(password: settings.syncPassword) {
+                    Text("密钥指纹 \(fp)")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+                if let failure = ws.decryptFailure {
+                    Label(failure, systemImage: "lock.trianglebadge.exclamationmark.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.orange)
+                }
+            }
+        }
+    }
+
+    // MARK: - 登录动作
+
+    private func login() async {
+        authBusy = true
+        defer { authBusy = false }
+        do {
+            let session = try await AuthClient.shared.login(
+                server: settings.serverURL,
+                username: settings.username,
+                password: loginPassword
+            )
+            settings.token = session.token
+            settings.username = session.username
+            loginPassword = ""
+            authNoticeIsError = false
+            authNotice = session.reused
+                ? "登录成功：已有 \(session.onlineDevices) 台设备在线，复用同一 Token"
+                : "登录成功：已签发新 Token"
+            ws.start(server: settings.serverURL, token: session.token)
+        } catch {
+            authNoticeIsError = true
+            authNotice = error.localizedDescription
+        }
+    }
+
+    private func logout() async {
+        authBusy = true
+        defer { authBusy = false }
+        let server = settings.serverURL
+        let token = settings.token
+        ws.stop()
+        settings.token = ""
+        authNoticeIsError = false
+        authNotice = "已退出登录"
+        try? await AuthClient.shared.logout(server: server, token: token)
     }
 
     // MARK: - 同步开关
