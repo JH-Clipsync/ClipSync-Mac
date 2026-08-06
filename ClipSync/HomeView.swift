@@ -418,6 +418,15 @@ struct HomeView: View {
                 HStack {
                     Text(msg.looksLikeSms ? "短信" : "剪贴板")
                         .font(.system(size: 11, weight: .semibold))
+                    if let phone = senderPhone(msg) {
+                        Text(phone)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 5).padding(.vertical, 0.5)
+                            .background(
+                                Capsule().fill(Color.primary.opacity(0.07))
+                            )
+                    }
                     Spacer()
                     Text(timeString(msg.date))
                         .font(.system(size: 10))
@@ -527,6 +536,14 @@ struct HomeView: View {
             : raw
         if cleaned.count <= 120 { return cleaned }
         return String(cleaned.prefix(120)) + "…"
+    }
+
+    /// 发件人：优先用服务端塞的 payload.sender；否则本地从【】里抽取（兜底）
+    private func senderPhone(_ msg: SyncMessage) -> String? {
+        guard msg.looksLikeSms else { return nil }
+        if let s = msg.payload.sender, !s.isEmpty { return s }
+        guard let raw = msg.payload.text, !raw.isEmpty else { return nil }
+        return SmsPayloadSanitizer.sanitize(text: raw, sender: nil).sender
     }
 
     private func timeString(_ date: Date) -> String {

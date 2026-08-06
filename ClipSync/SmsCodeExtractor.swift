@@ -56,11 +56,16 @@ enum SmsPayloadSanitizer {
             }
         }
 
-        // 2) 清洗正文：剥离前导【xxx】块（可能多个）
+        // 2) 清洗正文：只剥离前导里【内容】含号码/服务号的前缀块（保留【招商银行】等签名）
         var cleaned = t
         while true {
-            if let m = firstMatchRange(in: cleaned, pattern: #"^\s*【[^】]*】\s*"#, group: 0) {
-                cleaned.removeSubrange(m)
+            guard let m = firstMatch(in: cleaned, pattern: #"^\s*【([^】]*)】\s*"#, group: 1),
+                  let full = firstMatchRange(in: cleaned, pattern: #"^\s*【[^】]*】\s*"#, group: 0) else { break }
+            let content = m.trimmingCharacters(in: .whitespaces)
+            // 内容里含 3+ 位连续数字（含 +86xxx 前缀的手机号 / 95xxx 服务号等）→ 视为号码前缀，删掉；
+            // 否则是服务商签名（【招商银行】【支付宝】等）→ 保留
+            if firstMatch(in: content, pattern: #"\d{3,}"#, group: 0) != nil {
+                cleaned.removeSubrange(full)
                 cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
             } else {
                 break
