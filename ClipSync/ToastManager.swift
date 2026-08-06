@@ -47,7 +47,7 @@ final class ToastManager {
 
         // 短信类 → 尝试抽取验证码
         let code: String? = {
-            guard message.isSms else { return nil }
+            guard message.looksLikeSms else { return nil }
             guard let text = message.payload.text else { return nil }
             return SmsCodeExtractor.extract(from: text)
         }()

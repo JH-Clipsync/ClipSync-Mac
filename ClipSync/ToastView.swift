@@ -301,8 +301,8 @@ struct ToastView: View {
     }
 
     private var title: String {
+        if message.looksLikeSms { return "短信验证码" }
         switch message.kind {
-        case MessageKind.smsCode: return "短信验证码"
         case MessageKind.image:   return "剪贴板图片"
         case MessageKind.share:   return "分享"
         default:
@@ -312,16 +312,22 @@ struct ToastView: View {
 
     private var bodyText: String {
         if !showContent { return "收到一条新消息" }
-        // 服务端已清洗完（去掉了 【+86xxx】前缀 / [N条] 合并提示），直接展示
+        // ⚠️ Mac 端本地兜底清洗（服务端可能没升级或清洗漏配，这里保证 UI 一致）：
+        //   1) 去掉所有前导【xxx】块
+        //   2) 去掉 [N条] / [xN] 合并提示
+        //   3) 去掉开头省略号
         let raw: String = {
             if let t = message.payload.text, !t.isEmpty { return t }
             if let p = message.payload.preview, !p.isEmpty { return p }
             if let mime = message.payload.mime, mime.hasPrefix("image/") { return "[图片]" }
             return "新消息"
         }()
+        let cleaned = message.looksLikeSms
+            ? SmsPayloadSanitizer.sanitize(text: raw, sender: message.payload.sender).text
+            : raw
         // ⚠️ SwiftUI 的 .truncationMode(.tail) 在某些布局下会 bug 性退化为头部截断，
         // 干脆自己手动做末尾截断，保证一定是"从后面省略"
-        return truncatedTail(raw, maxChars: 80)
+        return truncatedTail(cleaned, maxChars: 80)
     }
 
     /// 严格的末尾截断：超过 maxChars 字符就截取前 maxChars 个，再拼上 …
@@ -330,9 +336,12 @@ struct ToastView: View {
         return String(s.prefix(maxChars)) + "…"
     }
 
-    /// 发件人：直接用服务端塞进来的 payload.sender（如 15735961954）
+    /// 发件人：优先用服务端塞的 payload.sender；否则本地从【】里抽取（兜底）
     private var extractedPhone: String? {
-        message.payload.sender
+        guard message.looksLikeSms else { return nil }
+        if let s = message.payload.sender, !s.isEmpty { return s }
+        guard let raw = message.payload.text, !raw.isEmpty else { return nil }
+        return SmsPayloadSanitizer.sanitize(text: raw, sender: nil).sender
     }
 
     private var timeString: String {

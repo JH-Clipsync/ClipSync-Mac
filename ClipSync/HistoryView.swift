@@ -148,7 +148,7 @@ private struct Row: View {
     @State private var confirmDelete = false
 
     private var extractedCode: String? {
-        guard message.isSms, let text = message.payload.text else { return nil }
+        guard message.looksLikeSms, let text = message.payload.text else { return nil }
         return SmsCodeExtractor.extract(from: text)
     }
 
@@ -248,8 +248,8 @@ private struct Row: View {
     // MARK: - content helpers
 
     private var title: String {
+        if message.looksLikeSms { return "短信验证码" }
         switch message.kind {
-        case MessageKind.smsCode: return "短信验证码"
         case MessageKind.image:   return "剪贴板图片"
         case MessageKind.share:   return "分享"
         default:
@@ -259,16 +259,19 @@ private struct Row: View {
 
     private var bodyText: String {
         if !showContent { return "收到一条新消息" }
-        // 服务端已清洗完
+        // ⚠️ Mac 端本地兜底清洗（与 ToastView 一致，不依赖服务端）
         let raw: String = {
             if let t = message.payload.text, !t.isEmpty { return t }
             if let p = message.payload.preview, !p.isEmpty { return p }
             if let mime = message.payload.mime, mime.hasPrefix("image/") { return "[图片]" }
             return "新消息"
         }()
+        let cleaned = message.looksLikeSms
+            ? SmsPayloadSanitizer.sanitize(text: raw, sender: message.payload.sender).text
+            : raw
         // 手动截断，避免 SwiftUI 在紧凑布局下的头部截断 bug
-        if raw.count <= 120 { return raw }
-        return String(raw.prefix(120)) + "…"
+        if cleaned.count <= 120 { return cleaned }
+        return String(cleaned.prefix(120)) + "…"
     }
 
     @ViewBuilder
@@ -297,9 +300,12 @@ private struct Row: View {
         }
     }
 
-    /// 发件人：直接用服务端塞进来的 payload.sender
+    /// 发件人：优先用服务端塞的 payload.sender；否则本地从【】里抽取（兜底）
     private var extractedPhone: String? {
-        message.payload.sender
+        guard message.looksLikeSms else { return nil }
+        if let s = message.payload.sender, !s.isEmpty { return s }
+        guard let raw = message.payload.text, !raw.isEmpty else { return nil }
+        return SmsPayloadSanitizer.sanitize(text: raw, sender: nil).sender
     }
 
     private var timeString: String {
@@ -343,9 +349,6 @@ enum ImagePreviewWindows {
         let filePath = tmpDir.appendingPathComponent("preview_\(Int(Date().timeIntervalSince1970)).png").path
         try? fileData.write(to: URL(fileURLWithPath: filePath))
 
-        let view = ImagePreviewView(image: image, filePath: filePath)
-        let hosting = NSHostingView(rootView: view)
-
         let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1200, height: 800)
         // 默认尺寸：宽不小于 640、高按原图但不超屏幕 80%，
         // 竖长图不再被压成窄条，图片在窗内等比 letterbox 完整显示
@@ -354,17 +357,32 @@ enum ImagePreviewWindows {
         // 加上工具栏高度
         let contentSize = NSSize(width: w, height: h + 46)
 
-        let win = NSWindow(
+        // 用 NSPanel + .nonactivatingPanel：从 Toast 点开预览时不激活 App，
+        // 否则 AppKit 会连带把主窗口一起带到前台（关掉预览就看见主窗口）。
+        let win = ImagePreviewPanel(
             contentRect: NSRect(origin: .zero, size: contentSize),
-            styleMask: [.titled, .closable, .resizable, .miniaturizable],
+            styleMask: [.titled, .closable, .resizable, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
+        let view = ImagePreviewView(image: image, filePath: filePath) { [weak win] in
+            win?.close()
+        }
+        let hosting = NSHostingView(rootView: view)
+
         win.title = "图片预览"
         win.contentView = hosting
         win.center()
         win.minSize = NSSize(width: 280, height: 200)
         win.isReleasedWhenClosed = false
+        // 浮在普通窗口之上，且不参与 App 的窗口循环 / 不随失活隐藏
+        win.isFloatingPanel = true
+        win.becomesKeyOnlyIfNeeded = false
+        win.hidesOnDeactivate = false
+        // 从 Toast 点开时 App 并未激活，普通层级会被压在别的 App 后面看不见，
+        // 所以抬到 floating；主窗口里点开则保持普通层级，别赖在其他 App 上面。
+        win.level = NSApp.isActive ? .normal : .floating
+        win.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
         let accessory = TitlebarAccessoryController {
             NSWorkspace.shared.open(URL(fileURLWithPath: filePath))
@@ -372,8 +390,31 @@ enum ImagePreviewWindows {
         accessory.layoutAttribute = .trailing
         win.addTitlebarAccessoryViewController(accessory)
 
-        win.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: false)
+        // 保活：NSPanel 默认 isReleasedWhenClosed=false 也仍需有强引用，
+        // 否则 hosting 视图连同面板会在闭包结束后被释放。
+        live.append(win)
+        win.orderFrontRegardless()
+        // 只把键盘焦点给面板，不调 NSApp.activate —— 主窗口因此不会被顶出来
+        win.makeKey()
+    }
+
+    /// 已打开的预览面板，关闭时移除
+    private static var live: [NSPanel] = []
+
+    fileprivate static func forget(_ panel: NSPanel) {
+        live.removeAll { $0 === panel }
+    }
+}
+
+/// 预览面板：可成为 key（要接收 ⌘C/⌘S/Esc），但永不成为 main，
+/// 这样它出现时 AppKit 不会去唤起 App 的 main window。
+private final class ImagePreviewPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+
+    override func close() {
+        super.close()
+        ImagePreviewWindows.forget(self)
     }
 }
 
@@ -410,6 +451,8 @@ private final class TitlebarAccessoryController: NSTitlebarAccessoryViewControll
 private struct ImagePreviewView: View {
     let image: NSImage
     let filePath: String
+    /// 关闭自己所属的面板（不能用 NSApp.keyWindow，App 未激活时会误关主窗口）
+    let onClose: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -445,7 +488,7 @@ private struct ImagePreviewView: View {
                 }
                 .keyboardShortcut("s", modifiers: .command)
                 Button("关闭") {
-                    NSApp.keyWindow?.close()
+                    onClose()
                 }
                 .keyboardShortcut(.cancelAction)
             }

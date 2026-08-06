@@ -409,14 +409,14 @@ struct HomeView: View {
 
     private func latestRow(_ msg: SyncMessage) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: msg.isSms ? "message.fill" : "doc.on.clipboard")
+            Image(systemName: msg.looksLikeSms ? "message.fill" : "doc.on.clipboard")
                 .font(.system(size: 13))
                 .foregroundStyle(.tint)
                 .frame(width: 22)
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Text(msg.isSms ? "短信" : "剪贴板")
+                    Text(msg.looksLikeSms ? "短信" : "剪贴板")
                         .font(.system(size: 11, weight: .semibold))
                     Spacer()
                     Text(timeString(msg.date))
@@ -503,7 +503,7 @@ struct HomeView: View {
     }
 
     private func extractedCode(_ msg: SyncMessage) -> String? {
-        guard msg.isSms, let text = msg.payload.text else { return nil }
+        guard msg.looksLikeSms, let text = msg.payload.text else { return nil }
         return SmsCodeExtractor.extract(from: text)
     }
 
@@ -516,10 +516,17 @@ struct HomeView: View {
     }
 
     private func previewText(_ msg: SyncMessage) -> String {
-        if let t = msg.payload.text, !t.isEmpty { return t }
-        if let p = msg.payload.preview, !p.isEmpty { return p }
-        if msg.payload.mime?.hasPrefix("image/") == true { return "[图片]" }
-        return "新消息"
+        let raw: String = {
+            if let t = msg.payload.text, !t.isEmpty { return t }
+            if let p = msg.payload.preview, !p.isEmpty { return p }
+            if msg.payload.mime?.hasPrefix("image/") == true { return "[图片]" }
+            return "新消息"
+        }()
+        let cleaned = msg.looksLikeSms
+            ? SmsPayloadSanitizer.sanitize(text: raw, sender: msg.payload.sender).text
+            : raw
+        if cleaned.count <= 120 { return cleaned }
+        return String(cleaned.prefix(120)) + "…"
     }
 
     private func timeString(_ date: Date) -> String {

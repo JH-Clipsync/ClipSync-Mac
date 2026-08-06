@@ -121,4 +121,13 @@ struct SyncMessage: Codable, Identifiable, Equatable {
     var isSms: Bool {
         category == MessageCategory.sms
     }
+
+    /// 展示层面"看起来像短信"：kind 判定为短信，或文本带短信特征标记。
+    /// 手机端推送经常不带 payload.kind，isSms 会漏判，
+    /// 文本里出现【号码】/ [N条] 这类标记时同样按短信清洗和展示。
+    var looksLikeSms: Bool {
+        if isSms { return true }
+        let raw = payload.text ?? payload.preview ?? ""
+        return SmsPayloadSanitizer.hasSmsMarkers(raw)
+    }
 }

@@ -75,7 +75,7 @@ final class HistoryStore: ObservableObject {
     func clear(filter: Filter) {
         DispatchQueue.main.async {
             switch filter {
-            case .sms:       self.messages.removeAll { $0.isSms }
+            case .sms:       self.messages.removeAll { $0.looksLikeSms }
             case .clipboard: self.messages.removeAll { $0.isClipboard }
             }
             self.scheduleSave()
@@ -96,7 +96,7 @@ final class HistoryStore: ObservableObject {
 
     func filtered(_ filter: Filter) -> [SyncMessage] {
         switch filter {
-        case .sms:       return messages.filter { $0.isSms }
+        case .sms:       return messages.filter { $0.looksLikeSms }
         case .clipboard: return messages.filter { $0.isClipboard }
         }
     }
@@ -104,7 +104,7 @@ final class HistoryStore: ObservableObject {
     /// 全部消息（按时间倒序，最新在前）
     var allMessages: [SyncMessage] { messages }
 
-    var smsCount: Int       { messages.lazy.filter { $0.isSms }.count }
+    var smsCount: Int       { messages.lazy.filter { $0.looksLikeSms }.count }
     var clipboardCount: Int { messages.lazy.filter { $0.isClipboard }.count }
 
     // MARK: - 持久化

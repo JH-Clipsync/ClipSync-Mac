@@ -24,8 +24,20 @@ final class WSClient: ObservableObject {
     /// 收到了解不开的密文（两端同步密码不一致）时置位，UI 据此提示
     @Published var decryptFailure: String?
 
-    /// 本机设备 ID（每次启动生成一次）
-    let deviceID: String = "mac-\(UUID().uuidString.prefix(8))"
+    /// 本机设备 ID：首次生成后存进 UserDefaults，之后一直复用。
+    ///
+    /// 不能每次启动都换：服务端按 device_id 在 Redis 里登记在线设备，ID 一直变
+    /// 会堆出一串再也不会下线的幽灵设备，在线数虚高，进而影响登录时"复用还是
+    /// 新签发 Token"的判断。
+    let deviceID: String = {
+        let key = "deviceID"
+        if let saved = UserDefaults.standard.string(forKey: key), !saved.isEmpty {
+            return saved
+        }
+        let fresh = "mac-\(UUID().uuidString.prefix(8))"
+        UserDefaults.standard.set(fresh, forKey: key)
+        return fresh
+    }()
 
     private var task: URLSessionWebSocketTask?
     private var session: URLSession?

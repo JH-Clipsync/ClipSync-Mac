@@ -76,8 +76,8 @@ final class SettingsStore: ObservableObject {
     /// 已登录 = 本地有 token
     var isLoggedIn: Bool { !token.isEmpty }
 
-    /// 账号密码都填了才能连接（连接时自动换 token）
-    var hasCredentials: Bool { !username.isEmpty && !password.isEmpty }
+    /// 有 token 或账号密码都填了才能连接
+    var hasCredentials: Bool { !token.isEmpty || (!username.isEmpty && !password.isEmpty) }
 
     private init() {
         let d = UserDefaults.standard
