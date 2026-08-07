@@ -264,23 +264,31 @@ final class WSClient: ObservableObject {
     }
 
     private func handle(text: String) {
-        guard let data = text.data(using: .utf8),
-              let msg = try? JSONDecoder().decode(SyncMessage.self, from: data) else {
+        guard let data = text.data(using: .utf8) else {
+            NSLog("[WS] ✗ 转换 UTF-8 失败: \(text.prefix(200))")
+            return
+        }
+        let decoder = JSONDecoder()
+        // 允许服务端额外加字段，不因未知字段 decode 失败丢整条消息
+        guard let msg = try? decoder.decode(SyncMessage.self, from: data) else {
             NSLog("[WS] ✗ 解析失败: \(text.prefix(200))")
             return
         }
         // 过滤自己发的消息（避免自己收到自己）
-        if msg.from == deviceID { return }
+        if msg.from == deviceID {
+            NSLog("[WS] ⏭ 跳过本人消息 from=\(msg.from)")
+            return
+        }
 
         // 密文消息：用本机同步密码解开；解不开就只提示，不把密文塞进历史
         var resolved = msg
         let settings = SettingsStore.shared
         switch PayloadCipher.decrypt(msg.payload, password: settings.effectiveSyncPassword) {
         case .plaintext:
-            NSLog("[WS] ↓ 收到 \(msg.type)")
+            NSLog("[WS] ↓ 收到 \(msg.type) text=\((resolved.payload.text ?? "").prefix(60))")
         case .decrypted(let plain):
             resolved.payload = plain
-            NSLog("[WS] ↓ 收到 \(msg.type) (已解密)")
+            NSLog("[WS] ↓ 收到 \(msg.type) (已解密) text=\((plain.text ?? "").prefix(60))")
         case .failed(let fingerprint):
             let localFP = PayloadCipher.fingerprint(password: settings.effectiveSyncPassword)
                 ?? "未设置"
@@ -299,6 +307,10 @@ final class WSClient: ObservableObject {
             self.decryptFailure = nil
             self.history.insert(resolved, at: 0)
             if self.history.count > 200 { self.history.removeLast() }
+            // 关键：即使内容相同，也要强制触发 Toast。
+            // 用"先置 nil 再赋值"绕过 @Published 的 Equatable 去重，
+            // 否则同一手机号的连续验证码，第二条不会弹通知。
+            self.lastMessage = nil
             self.lastMessage = resolved
         }
     }
