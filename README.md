@@ -11,10 +11,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/gitwangjiahui/ClipSync-Mac/releases">⬇️ 下载 dmg/zip</a> ·
-  <a href="https://github.com/orgs/gitwangjiahui/packages">📦 Packages (ghcr.io)</a> ·
-  <a href="https://github.com/gitwangjiahui/ClipSync-Server">🖧 服务端</a> ·
-  <a href="https://github.com/gitwangjiahui/ClipSync-Android">📱 Android 端</a>
+  <a href="https://github.com/JH-Clipsync/ClipSync-Mac/releases">⬇️ 下载 dmg/zip</a> ·
+  <a href="https://github.com/orgs/JH-Clipsync/packages">📦 Packages (ghcr.io)</a> ·
+  <a href="https://github.com/JH-Clipsync/ClipSync-Server">🖧 服务端</a> ·
+  <a href="https://github.com/JH-Clipsync/ClipSync-Android">📱 Android 端</a>
 </p>
 
 ---
@@ -33,7 +33,7 @@
 
 ## 二、下载与安装
 
-到 [Releases](https://github.com/gitwangjiahui/ClipSync-Mac/releases) 下载：
+到 [Releases](https://github.com/JH-Clipsync/ClipSync-Mac/releases) 下载：
 
 - `ClipSync-x.y.z.dmg`：双击打开 → 拖入「应用程序」即可（推荐）
 - `ClipSync-x.y.z.zip`：解压出 `.app` 直接用
