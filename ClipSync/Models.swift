@@ -32,6 +32,7 @@ enum MessageType {
     static let notifyMobile = "notify_mobile"  // 只发移动端
     static let notifyAll    = "notify_all"     // 广播
     static let clipboard    = "clipboard"      // 剪贴板同步
+    static let serverKick   = "server_kick"    // 服务端踢下线通知
 }
 
 /// 消息业务子类型（payload.kind）

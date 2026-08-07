@@ -16,15 +16,37 @@ struct RevealPasswordField: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Group {
-                if isRevealed {
-                    TextField(title, text: $text)
-                } else {
-                    SecureField(title, text: $text)
+            if isEnabled {
+                // 可编辑：正常输入框
+                Group {
+                    if isRevealed {
+                        TextField(title, text: $text)
+                    } else {
+                        SecureField(title, text: $text)
+                    }
                 }
+                .textFieldStyle(.roundedBorder)
+            } else if isRevealed {
+                // 只读明文：用 Text 展示，天然可选中复制
+                Text(text.isEmpty ? title : text)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color(nsColor: .controlBackgroundColor))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .stroke(Color(nsColor: .separatorColor))
+                    )
+            } else {
+                // 只读密文：不可见也不可复制，用 SecureField 占位
+                SecureField(title, text: .constant(text))
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(true)
             }
-            .textFieldStyle(.roundedBorder)
-            .disabled(!isEnabled)
 
             Button {
                 isRevealed.toggle()
@@ -33,7 +55,6 @@ struct RevealPasswordField: View {
                     .frame(width: 18, height: 18)
             }
             .buttonStyle(.borderless)
-            .disabled(!isEnabled)
             .help(isRevealed ? "隐藏\(title)" : "显示\(title)")
         }
     }

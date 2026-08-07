@@ -47,6 +47,16 @@ final class WSClient: ObservableObject {
     private var currentServer = ""
     private var currentToken = ""
 
+    /// 用户主动断开时置 true，scheduleReconnect 据此跳过自动重连
+    private var userInitiatedDisconnect = false
+    /// 被服务端踢下线（密码重置/封禁）时置 true，阻止自动重连
+    private var wasKicked = false
+    /// token 失效后重新登录的次数，超过 1 次不再重试（密码已被改）
+    private var authRetryCount = 0
+    /// 自动重连尝试次数（指数退避：2, 4, 8, 16, 30, 30...）
+    private var reconnectAttempts = 0
+    private let maxReconnectDelay: TimeInterval = 30
+
     /// 最短 "连接中" 显示时间：进入 connecting 后至少停留 1.5s 才允许切回 disconnected
     private var connectingSince: Date?
     private let minConnectingDuration: TimeInterval = 1.5
@@ -121,10 +131,52 @@ final class WSClient: ObservableObject {
     }
 
     /// token 失效后重新换一个并接着连。密码存在本地，用户无需干预。
+    ///
+    /// 这里不复用 [connect]，因为 connect 的登录失败统一走 [describeLoginFailure]，
+    /// 会把"密码已被管理端重置"也提示成"请检查用户名和密码"，让人误以为是自己填错了。
+    /// 重新登录失败要单独区分：服务端拒绝（401/403）= 密码已失效；其他 = 网络问题。
     @MainActor
     func reauthenticate(settings: SettingsStore) async {
+        let server = ServerAddress.normalize(settings.serverURL)
+        guard !server.isEmpty else { return }
         settings.token = ""
-        await connect(settings: settings)
+        state = .connecting
+        authError = nil
+        connectingSince = Date()
+        do {
+            let session = try await AuthClient.shared.login(
+                server: server,
+                username: settings.username,
+                password: settings.password
+            )
+            settings.token = session.token
+            NSLog("[WS] 🔑 重新登录成功，继续连接")
+            start(server: server, token: session.token)
+        } catch let error as AuthError {
+            state = .disconnected
+            connectingSince = nil
+            switch error {
+            case .server(let status, _):
+                wasKicked = true
+                if status == 401 || status == 403 {
+                    // 服务端不认这套账密 → 密码已被管理端重置
+                    authError = "密码已失效，请重新登录"
+                    NSLog("[WS] 🔒 重新登录被拒（\(status)），密码已变更，不再重连")
+                } else {
+                    authError = "登录失败：\(error.errorDescription ?? "未知错误")"
+                    NSLog("[WS] 🔒 重新登录被拒（\(status)），不再重连")
+                }
+            default:
+                // 网络/解析类错误：提示用户，但不置 wasKicked，允许后续手动重试
+                authError = Self.describeLoginFailure(error)
+                NSLog("[WS] ✗ 重新登录失败: \(error.localizedDescription)")
+            }
+        } catch {
+            state = .disconnected
+            connectingSince = nil
+            authError = Self.describeLoginFailure(error)
+            NSLog("[WS] ✗ 重新登录失败: \(error.localizedDescription)")
+        }
     }
 
     /// 启动连接。相同 server + token + isRunning 时直接跳过（防抖）
@@ -147,6 +199,10 @@ final class WSClient: ObservableObject {
         isRunning = true
         currentServer = server
         currentToken = token
+        userInitiatedDisconnect = false
+        wasKicked = false
+        authRetryCount = 0
+        reconnectAttempts = 0
         state = .connecting
         authError = nil
         connectingSince = Date()
@@ -186,6 +242,9 @@ final class WSClient: ObservableObject {
     /// 用户主动断开：连 stop 一起把失败提示清掉，"手动断开"不是错误
     @MainActor
     func disconnect() {
+        userInitiatedDisconnect = true
+        wasKicked = false
+        reconnectTimer?.invalidate(); reconnectTimer = nil
         stop()
         authError = nil
         decryptFailure = nil
@@ -249,8 +308,11 @@ final class WSClient: ObservableObject {
             switch result {
             case .failure(let err):
                 NSLog("[WS] ✗ 接收错误: \(err.localizedDescription)")
-                self.noteAuthFailureIfNeeded(err)
-                self.scheduleReconnect(reason: Self.describeSocketFailure(err))
+                // 被踢下线后 isRunning=false，不再重连
+                guard self.isRunning else { return }
+                if !self.noteAuthFailureIfNeeded(err) {
+                    self.scheduleReconnect(reason: Self.describeSocketFailure(err))
+                }
             case .success(let msg):
                 switch msg {
                 case .string(let text): self.handle(text: text)
@@ -277,6 +339,24 @@ final class WSClient: ObservableObject {
         // 过滤自己发的消息（避免自己收到自己）
         if msg.from == deviceID {
             NSLog("[WS] ⏭ 跳过本人消息 from=\(msg.from)")
+            return
+        }
+
+        // 服务端踢下线通知：主动断开，不重连，提示用户
+        if msg.type == MessageType.serverKick {
+            NSLog("[WS] 👢 收到服务端踢下线通知")
+            // 必须同步设置，否则紧随其后的 .failure 回调会在
+            // main.async 之前进入 scheduleReconnect，导致重连
+            self.wasKicked = true
+            self.isRunning = false
+            DispatchQueue.main.async {
+                self.reconnectTimer?.invalidate(); self.reconnectTimer = nil
+                self.task?.cancel(with: .goingAway, reason: nil)
+                self.task = nil
+                self.pingTimer?.invalidate(); self.pingTimer = nil
+                self.state = .disconnected
+                self.authError = "密码已被管理员重置，请重新登录"
+            }
             return
         }
 
@@ -332,13 +412,16 @@ final class WSClient: ObservableObject {
                 guard let self, self.isRunning else { return }
                 if let err = err {
                     NSLog("[WS] ⚠ ping 失败: \(err.localizedDescription)")
-                    self.noteAuthFailureIfNeeded(err)
-                    if self.state != .disconnected {
-                        self.scheduleReconnect(reason: Self.describeSocketFailure(err))
+                    if !self.noteAuthFailureIfNeeded(err) {
+                        if self.state != .disconnected {
+                            self.scheduleReconnect(reason: Self.describeSocketFailure(err))
+                        }
                     }
                 } else if self.state != .connected {
                     self.state = .connected
                     self.connectingSince = nil
+                    self.reconnectAttempts = 0
+                    self.authRetryCount = 0
                     // 连上了，之前的失败提示就该消失
                     self.authError = nil
                     NSLog("[WS] 🟢 已连接服务器")
@@ -349,26 +432,40 @@ final class WSClient: ObservableObject {
 
     // MARK: - 鉴权失败识别
 
-    /// 服务端在 token 失效时用 HTTP 401 拒绝 WS 升级，URLSession 会把它
+    /// 服务端在 token 失效时用 HTTP 401 拒绝 WS 升级，URLSession 会把它们
     /// 报成握手错误。这里把它翻译成一句用户能看懂的提示。
-    private func noteAuthFailureIfNeeded(_ error: Error) {
+    /// 返回 true 表示已识别为鉴权失败并自行触发了重新登录，调用方无需再 scheduleReconnect。
+    @discardableResult
+    private func noteAuthFailureIfNeeded(_ error: Error) -> Bool {
         let ns = error as NSError
         let desc = ns.localizedDescription
         let looksLikeAuth = desc.contains("401") || desc.contains("Unauthorized")
             || ns.code == 401
-        guard looksLikeAuth else { return }
+        guard looksLikeAuth else { return false }
+        // 已被服务端踢下线，不再尝试重新登录
+        if wasKicked { return true }
+        // 只允许重新登录 1 次，超过说明密码已被改
+        authRetryCount += 1
+        if authRetryCount > 1 {
+            NSLog("[WS] 🔒 重新登录仍失败（第\(authRetryCount)次），密码可能已被重置")
+            DispatchQueue.main.async {
+                self.wasKicked = true
+                self.authError = "密码已失效，请重新登录"
+            }
+            return true
+        }
         DispatchQueue.main.async {
-            NSLog("[WS] 🔒 token 已失效，尝试用已保存的账号密码重新换取")
+            NSLog("[WS] 🔒 token 已失效，尝试用已保存的账号密码重新换取（第\(self.authRetryCount)次）")
             let settings = SettingsStore.shared
             guard settings.hasCredentials else {
                 self.authError = "登录已失效，请到设置里填写账号密码"
                 return
             }
-            // 密码存在本地，这里悄悄换一个新 token 接着连，用户不用干预。
-            // 先停掉当前重试循环，避免和 connect() 里的新连接打架。
+            self.reconnectTimer?.invalidate(); self.reconnectTimer = nil
             self.stop()
             Task { await self.reauthenticate(settings: settings) }
         }
+        return true
     }
 
     /// 把 URLSession 的底层错误翻成用户能看懂的一句话
@@ -397,27 +494,56 @@ final class WSClient: ObservableObject {
 
     private func scheduleReconnect(reason: String? = nil) {
         DispatchQueue.main.async {
-            // 保证 "连接中" 至少显示 minConnectingDuration，避免一闪而过
-            let delay: TimeInterval = {
+            // 手动断开不重连
+            guard !self.userInitiatedDisconnect else {
+                NSLog("[WS] 🔴 用户已手动断开，不自动重连")
+                return
+            }
+            // 被服务端踢下线不重连
+            guard !self.wasKicked else {
+                NSLog("[WS] 🔴 被服务端踢下线，不自动重连")
+                return
+            }
+
+            // 清理当前连接资源，但保留 server/token 供重连使用
+            self.isRunning = false
+            self.task?.cancel(with: .goingAway, reason: nil)
+            self.task = nil
+            self.pingTimer?.invalidate(); self.pingTimer = nil
+
+            // 保证 "连接中" 至少显示 minConnectingDuration
+            let minDelay: TimeInterval = {
                 guard let started = self.connectingSince else { return 0 }
                 let elapsed = Date().timeIntervalSince(started)
                 return max(0, self.minConnectingDuration - elapsed)
             }()
 
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                guard self.isRunning else { return }
-                self.state = .disconnected
-                self.connectingSince = nil
-                self.isRunning = false
-                self.task?.cancel(with: .goingAway, reason: nil)
-                self.task = nil
-                self.pingTimer?.invalidate(); self.pingTimer = nil
-                // 把断线原因摆到界面上，别让用户只看到一个"未连接"
-                if let reason, self.authError == nil {
-                    self.authError = reason
-                }
-                NSLog("[WS] 🔴 连接失败，已停止（不自动重连；点重连按钮再试）")
+            // 指数退避：2, 4, 8, 16, 30, 30...
+            let backoff = min(pow(2.0, Double(self.reconnectAttempts)), self.maxReconnectDelay)
+            self.reconnectAttempts += 1
+            let delay = max(backoff, minDelay)
+
+            self.state = .disconnected
+            self.connectingSince = nil
+            if let reason, self.authError == nil {
+                self.authError = reason
             }
+
+            let server = self.currentServer
+            let token = self.currentToken
+            NSLog("[WS] 🔄 \(Int(delay))秒后自动重连（第\(self.reconnectAttempts)次）→ \(server)")
+
+            self.reconnectTimer?.invalidate()
+            self.reconnectTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+                guard let self, !self.userInitiatedDisconnect else { return }
+                guard !server.isEmpty, !token.isEmpty else {
+                    NSLog("[WS] ✗ 重连失败：server 或 token 为空")
+                    return
+                }
+                NSLog("[WS] 🔄 正在自动重连 → \(server)")
+                self.start(server: server, token: token)
+            }
+            RunLoop.main.add(self.reconnectTimer!, forMode: .common)
         }
     }
 }
