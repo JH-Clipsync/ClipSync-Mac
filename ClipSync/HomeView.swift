@@ -2,11 +2,12 @@ import SwiftUI
 import AppKit
 
 // ============================================================
-// HomeView：主页 —— 集中式控制台
-// - 顶部：大号连接状态卡（图标 + 状态文字 + 服务器地址）
-// - 中部：服务器 + 账号登录（用户名/密码换 Token）、端到端加密密码
-// - 同步开关：自动同步剪贴板 + 接收弹窗
-// - 统计 + 最近消息
+// HomeView：主页 —— 纯展示 + 连接快捷操作
+// - 顶部：大号连接状态卡（图标 + 状态文字 + 服务器地址 + 连接/断开按钮）
+// - 在线设备列表
+// - 统计（短信 / 剪贴板计数）
+// - 最近消息
+// 账号、加密、同步开关等设置项统一放在「设置」页。
 // ============================================================
 
 struct HomeView: View {
@@ -14,8 +15,6 @@ struct HomeView: View {
     @EnvironmentObject var settings: SettingsStore
     @EnvironmentObject var history: HistoryStore
 
-    @State private var revealSyncPassword = false
-    @State private var revealLoginPassword = false
     @State private var pushToast: String? = nil
 
     var body: some View {
@@ -23,9 +22,6 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 16) {
                 statusCard
                 onlineDevicesCard
-                serverCard
-                encryptionCard
-                syncCard
                 infoGrid
                 latestSection
                 Spacer(minLength: 0)
@@ -218,181 +214,6 @@ struct HomeView: View {
         let f = DateFormatter()
         f.dateFormat = "HH:mm"
         return f.string(from: date)
-    }
-
-    // MARK: - 服务器 / 账号
-
-    private var serverCard: some View {
-        cardSection(title: "账号", color: .blue) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
-                    Image(systemName: "network")
-                        .foregroundStyle(.secondary)
-                        .frame(width: 18)
-                    // 地址只填 host:port，ws:// 由 ServerAddress.normalize 补齐
-                    TextField("服务器地址，例如 192.168.1.10:8080", text: $settings.serverURL)
-                        .textFieldStyle(.roundedBorder)
-                        .disabled(ws.state != .disconnected)
-                }
-                Text(resolvedServerHint)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .padding(.leading, 26)
-
-                // 账号密码常驻输入：点「连接」时才校验，没有单独的登录按钮。
-                // 账号由管理员在服务端创建，客户端不提供注册。
-                HStack(spacing: 8) {
-                    Image(systemName: "person.fill")
-                        .foregroundStyle(.secondary)
-                        .frame(width: 18)
-                    TextField("用户名", text: $settings.username)
-                        .textFieldStyle(.roundedBorder)
-                        .disabled(ws.state != .disconnected)
-                }
-                HStack(spacing: 8) {
-                    Image(systemName: "lock.fill")
-                        .foregroundStyle(.secondary)
-                        .frame(width: 18)
-                    RevealPasswordField(
-                        title: "密码",
-                        text: $settings.password,
-                        isRevealed: $revealLoginPassword,
-                        isEnabled: ws.state == .disconnected
-                    )
-                    if settings.isLoggedIn {
-                        Image(systemName: "checkmark.seal.fill")
-                            .foregroundStyle(.green)
-                            .help("已从服务端取得 Token")
-                    }
-                }
-
-                if !settings.hasCredentials {
-                    Text("填写账号密码后点「连接」，会自动校验并取得 Token")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                }
-                if let authError = ws.authError {
-                    Label(authError, systemImage: "exclamationmark.triangle.fill")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.orange)
-                }
-            }
-        }
-    }
-
-    // MARK: - 端到端加密
-
-    private var encryptionCard: some View {
-        cardSection(title: "端到端加密", color: .purple) {
-            VStack(alignment: .leading, spacing: 10) {
-                Toggle(isOn: $settings.e2eeEnabled) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "lock.shield.fill")
-                            .foregroundStyle(.purple)
-                            .frame(width: 18)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("启用端到端加密")
-                                .font(.system(size: 13, weight: .medium))
-                            Text("用同步密码加密内容，服务端只转发密文")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                .toggleStyle(.switch)
-
-                // 关闭加密时整行隐藏：明文传输下这个输入框没有意义
-                if settings.e2eeEnabled {
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: "key.horizontal.fill")
-                            .foregroundStyle(.secondary)
-                            .frame(width: 18)
-                        // 密码要点「确定」才保存：派生密钥很贵，不能跟着每次按键跑
-                        SyncPasswordField(
-                            settings: settings,
-                            isRevealed: $revealSyncPassword
-                        )
-                    }
-                }
-
-                encryptionStatusText
-
-                if let failure = ws.decryptFailure {
-                    Label(failure, systemImage: "lock.trianglebadge.exclamationmark.fill")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.orange)
-                }
-            }
-        }
-    }
-
-    /// 说清当前加密状态：明文 / 内置默认密码 / 自设密码
-    @ViewBuilder
-    private var encryptionStatusText: some View {
-        if !settings.e2eeEnabled {
-            Text("加密已关闭：消息以明文传输")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-        } else {
-            if settings.usingBuiltinSyncPassword {
-                Label(
-                    "未填同步密码，正在使用内置默认密码（各端通用，强度低于自设密码）",
-                    systemImage: "exclamationmark.triangle.fill"
-                )
-                .font(.system(size: 11))
-                .foregroundStyle(.orange)
-            }
-            // 指纹在后台算，不阻塞 body 求值
-            FingerprintLabel(password: settings.effectiveSyncPassword)
-        }
-    }
-
-    /// 回显程序真正会连的地址，用户不用猜前缀补成了什么
-    private var resolvedServerHint: String {
-        let normalized = ServerAddress.normalize(settings.serverURL)
-        return normalized.isEmpty ? "请填写服务器地址" : "将连接 \(normalized)"
-    }
-
-    // MARK: - 同步开关
-
-    private var syncCard: some View {
-        cardSection(title: "同步", color: .green) {
-            VStack(alignment: .leading, spacing: 10) {
-                Toggle(isOn: $settings.autoSyncClipboard) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "doc.on.clipboard")
-                            .foregroundStyle(.indigo)
-                            .frame(width: 18)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("自动同步剪贴板")
-                                .font(.system(size: 13, weight: .medium))
-                            Text("电脑复制的内容实时推送到手机")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                .toggleStyle(.switch)
-
-                Divider()
-
-                Toggle(isOn: $settings.showContent) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "bell.badge")
-                            .foregroundStyle(.orange)
-                            .frame(width: 18)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("显示消息内容")
-                                .font(.system(size: 13, weight: .medium))
-                            Text("关闭后弹窗只显示占位提示")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                .toggleStyle(.switch)
-            }
-        }
     }
 
     // MARK: - 通用卡片容器

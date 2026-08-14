@@ -35,6 +35,7 @@ struct ContentView: View {
         case .home:      HomeView()
         case .sms:       HistoryView(filter: .sms)
         case .clipboard: HistoryView(filter: .clipboard)
+        case .settings:  SettingsView()
         }
     }
 }
@@ -42,7 +43,7 @@ struct ContentView: View {
 // MARK: - 侧边栏项
 
 enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
-    case home, sms, clipboard
+    case home, sms, clipboard, settings
 
     var id: String { rawValue }
 
@@ -51,6 +52,7 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         case .home:      return "主页"
         case .sms:       return "短信"
         case .clipboard: return "剪贴板"
+        case .settings:  return "设置"
         }
     }
 
@@ -59,6 +61,7 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         case .home:      return "house.fill"
         case .sms:       return "message.badge"
         case .clipboard: return "doc.on.clipboard"
+        case .settings:  return "gearshape"
         }
     }
 }

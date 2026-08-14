@@ -62,28 +62,32 @@ struct SettingsView: View {
                 isEnabled: ws.state == .disconnected
             )
 
+            // 快速操作：连接 / 断开。设置是实时绑定的，点「连接」即按当前填写的值生效。
             HStack(spacing: 10) {
                 Button {
                     Task { await ws.connect(settings: settings) }
                 } label: {
                     HStack(spacing: 6) {
                         if ws.state == .connecting {
-                            ProgressView().controlSize(.small).scaleEffect(0.7)
+                            ProgressView().controlSize(.small)
                             Text("连接中…")
                         } else {
                             Image(systemName: "bolt.horizontal.fill")
-                            Text("连接")
+                            Text(settings.isLoggedIn ? "重新连接" : "保存并连接")
                         }
                     }
-                    .frame(minWidth: 80)
+                    .frame(minWidth: 110)
                 }
-                .disabled(ws.state != .disconnected || !settings.hasCredentials)
+                .buttonStyle(.borderedProminent)
+                .tint(.indigo)
+                .disabled(ws.state == .connecting || !settings.hasCredentials)
 
                 Button {
                     ws.disconnect()
                 } label: {
                     Label("断开", systemImage: "xmark.circle")
                 }
+                .buttonStyle(.bordered)
                 .disabled(ws.state == .disconnected)
 
                 Spacer()
@@ -94,6 +98,7 @@ struct SettingsView: View {
                         .foregroundStyle(.green)
                 }
             }
+            .padding(.top, 2)
 
             if !settings.hasCredentials {
                 Text("请填写用户名和密码（账号由管理员创建）")

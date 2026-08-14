@@ -22,9 +22,9 @@ struct SyncPasswordField: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
+            HStack(alignment: .center, spacing: 8) {
                 RevealPasswordField(
-                    title: "同步密码（留空则用内置默认密码）",
+                    title: "同步密码",
                     text: $draft,
                     isRevealed: $isRevealed
                 )
@@ -35,11 +35,9 @@ struct SyncPasswordField: View {
                     .help("保存同步密码并重新派生密钥")
             }
 
-            if isDirty {
-                Text("同步密码已修改，点「确定」后生效")
-                    .font(.system(size: captionSize))
-                    .foregroundStyle(.orange)
-            }
+            Text("留空则使用内置默认密码；已修改需点「确定」生效")
+                .font(.system(size: captionSize))
+                .foregroundStyle(isDirty ? .orange : .secondary)
         }
         // 首次出现时把已保存的密码填进草稿
         .task {
