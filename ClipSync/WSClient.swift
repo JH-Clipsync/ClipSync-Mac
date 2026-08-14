@@ -49,6 +49,7 @@ final class WSClient: NSObject, ObservableObject {
     private var isRunning = false
     private var currentServer = ""
     private var currentToken = ""
+    private var currentCaps = ""
 
     /// 最近一次 WebSocket 握手返回的 HTTP 状态码。
     ///
@@ -79,6 +80,15 @@ final class WSClient: NSObject, ObservableObject {
 
     // MARK: - 连接控制
 
+    /// 把本机同步开关拼成上报字符串：clip_up（剪贴板上行）/ auto_put（自动写入本机）。
+    /// Mac 端这两个行为目前都是随连接生效，只要连上即视为开启。
+    private func capsString(_ settings: SettingsStore) -> String {
+        var parts: [String] = []
+        if settings.autoSyncClipboard { parts.append("clip_up") }
+        parts.append("auto_put") // Mac 收到远端剪贴板默认自动写入
+        return parts.joined(separator: ",")
+    }
+
     /// 统一的连接入口：没有 token 就先用账号密码换一个，再建立 WebSocket。
     ///
     /// 这样界面上只需要一个「连接」按钮，不必让用户先点「登录」再点「连接」。
@@ -94,7 +104,7 @@ final class WSClient: NSObject, ObservableObject {
         }
 
         if !settings.token.isEmpty {
-            start(server: server, token: settings.token)
+            start(server: server, token: settings.token, caps: capsString(settings))
             return
         }
         guard settings.hasCredentials else {
@@ -115,7 +125,7 @@ final class WSClient: NSObject, ObservableObject {
             settings.token = session.token
             settings.username = session.username
             NSLog("[WS] 🔑 连接前自动登录成功：reused=\(session.reused) 在线 \(session.onlineDevices) 台")
-            start(server: server, token: session.token)
+            start(server: server, token: session.token, caps: capsString(settings))
         } catch {
             state = .disconnected
             // 区分"服务端不认这套账密"和"根本没连上服务端"，提示才有指导意义
@@ -195,8 +205,9 @@ final class WSClient: NSObject, ObservableObject {
 
     /// 启动连接（用户主动点"连接"时调用）。
     /// 重置所有状态、错误计数，然后建立 WebSocket。
-    func start(server: String, token: String) {
-        if isRunning && server == currentServer && token == currentToken {
+    /// - Parameter caps: 本机同步能力/开关，逗号分隔（如 "clip_up,auto_put"），上报给服务端用于在线列表展示。
+    func start(server: String, token: String, caps: String = "") {
+        if isRunning && server == currentServer && token == currentToken && caps == currentCaps {
             NSLog("[WS] start 跳过：已在连接同一 server")
             return
         }
@@ -209,19 +220,25 @@ final class WSClient: NSObject, ObservableObject {
         hardFailureCount = 0
         currentServer = server
         currentToken = token
+        currentCaps = caps
         state = .connecting
         authError = nil
         connectingSince = Date()
-        openConnection(server: server, token: token)
+        openConnection(server: server, token: token, caps: caps)
     }
 
     /// 实际建立 WebSocket 连接。首次连接和静默重连都走这里。
-    private func openConnection(server: String, token: String) {
+    private func openConnection(server: String, token: String, caps: String? = nil) {
         guard !token.isEmpty else {
             NSLog("[WS] openConnection 失败：token 为空")
             return
         }
-        guard let url = URL(string: "\(server)/ws?token=\(token)&device=\(deviceID)&role=pc") else {
+        let capsStr = caps ?? currentCaps
+        var q = "token=\(token)&device=\(deviceID)&role=pc&platform=mac"
+        if !capsStr.isEmpty {
+            q += "&caps=\(capsStr)"
+        }
+        guard let url = URL(string: "\(server)/ws?\(q)") else {
             NSLog("[WS] openConnection 失败：URL 非法 \(server)")
             return
         }
@@ -262,6 +279,7 @@ final class WSClient: NSObject, ObservableObject {
         isRunning = false
         currentServer = ""
         currentToken = ""
+        currentCaps = ""
         reconnectTimer?.invalidate(); reconnectTimer = nil
         pingTimer?.invalidate();      pingTimer = nil
         task?.cancel(with: .goingAway, reason: nil)

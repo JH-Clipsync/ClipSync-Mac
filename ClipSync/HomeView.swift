@@ -151,37 +151,66 @@ struct HomeView: View {
     }
 
     private func onlineDeviceRow(_ device: OnlineDevice) -> some View {
-        HStack(spacing: 10) {
-            ZStack {
-                Circle()
-                    .fill(Color.green.opacity(0.15))
-                    .frame(width: 30, height: 30)
-                Image(systemName: device.roleIcon)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.green)
-            }
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 6) {
-                    Text(device.roleLabel)
-                        .font(.system(size: 12, weight: .medium))
-                    if device.isSelf {
-                        Text("本机")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 5).padding(.vertical, 1)
-                            .background(Capsule().fill(Color.indigo))
-                    }
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle()
+                        .fill(Color.green.opacity(0.15))
+                        .frame(width: 30, height: 30)
+                    Image(systemName: device.platformIcon)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.green)
                 }
-                Text(device.ip)
-                    .font(.system(size: 10, design: .monospaced))
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 6) {
+                        Text(device.platformLabel)
+                            .font(.system(size: 12, weight: .medium))
+                        if device.isSelf {
+                            Text("本机")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 5).padding(.vertical, 1)
+                                .background(Capsule().fill(Color.indigo))
+                        }
+                    }
+                    HStack(spacing: 6) {
+                        Text(device.ip)
+                            .font(.system(size: 10, design: .monospaced))
+                        Text("·")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                        Text(device.shortID)
+                            .font(.system(size: 10, design: .monospaced))
+                    }
+                    .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text(onlineTimeString(device.onlineAt))
+                    .font(.system(size: 10))
                     .foregroundStyle(.secondary)
             }
-            Spacer()
-            Text(onlineTimeString(device.onlineAt))
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
+            // 同步开关状态标签
+            HStack(spacing: 5) {
+                capTag("剪贴板", on: device.clipUp)
+                capTag("短信", on: device.smsIn)
+                capTag("自动接收", on: device.autoPut)
+            }
+            .padding(.leading, 40)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 3)
+    }
+
+    private func capTag(_ text: String, on: Bool) -> some View {
+        HStack(spacing: 3) {
+            Circle()
+                .fill(on ? Color.green : Color.secondary.opacity(0.4))
+                .frame(width: 5, height: 5)
+            Text(text)
+                .font(.system(size: 9))
+        }
+        .foregroundStyle(on ? Color.secondary : Color.secondary.opacity(0.6))
+        .padding(.horizontal, 6).padding(.vertical, 2)
+        .background(Capsule().fill(on ? Color.green.opacity(0.1) : Color.secondary.opacity(0.08)))
     }
 
     private func onlineTimeString(_ millis: Int64) -> String {

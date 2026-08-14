@@ -40,37 +40,65 @@ enum MessageType {
 struct OnlineDevice: Codable, Identifiable, Equatable {
     var deviceID: String
     var role: String
+    var platform: String?
     var ip: String
     var onlineAt: Int64
     var isSelf: Bool
+    var caps: [String: Bool]?
 
     enum CodingKeys: String, CodingKey {
         case deviceID = "device_id"
         case role
+        case platform
         case ip
         case onlineAt = "online_at"
         case isSelf = "self"
+        case caps
     }
 
     var id: String { deviceID }
 
-    /// 角色中文标签
-    var roleLabel: String {
-        switch role {
-        case "mobile": return "手机"
-        case "pc":     return "电脑"
-        default:       return role
+    /// 平台中文标签
+    var platformLabel: String {
+        switch (platform ?? "").lowercased() {
+        case "mac":      return "macOS"
+        case "windows":  return "Windows"
+        case "linux":    return "Linux"
+        case "android":  return "Android"
+        case "ios":      return "iOS"
+        default:
+            // 平台未知时退回 role
+            return role == "mobile" ? "手机" : "电脑"
         }
     }
 
-    /// 设备类型图标
-    var roleIcon: String {
-        switch role {
-        case "mobile": return "iphone"
-        case "pc":     return "desktopcomputer"
-        default:       return "questionmark.circle"
+    /// 设备类型图标（按平台细分）
+    var platformIcon: String {
+        switch (platform ?? "").lowercased() {
+        case "mac", "windows", "linux": return "desktopcomputer"
+        case "ios":     return "iphone"
+        case "android": return "smartphone"
+        default:
+            return role == "mobile" ? "iphone" : "desktopcomputer"
         }
     }
+
+    /// 设备 ID 用于展示：长 ID 缩短为前 8 位
+    var shortID: String {
+        let id = deviceID
+        if let dash = id.firstIndex(of: "-") {
+            let suffix = id[id.index(after: dash)...]
+            return String(suffix.prefix(8))
+        }
+        return String(id.prefix(8))
+    }
+
+    /// 是否开启剪贴板上行
+    var clipUp: Bool { caps?["clip_up"] ?? false }
+    /// 是否开启短信同步（通常只有 Android）
+    var smsIn: Bool { caps?["sms_in"] ?? false }
+    /// 是否自动写入本机剪贴板
+    var autoPut: Bool { caps?["auto_put"] ?? false }
 }
 
 /// 消息业务子类型（payload.kind）
