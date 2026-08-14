@@ -84,59 +84,24 @@ jobs:
       - name: 打包成 DMG（含 Applications 拖拽安装引导）
         run: |
           set -e
+          cd dist
           VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" ../ClipSync/Info.plist)
           DMG_NAME="ClipSync-${VERSION}.dmg"
           VOLNAME="ClipSync ${VERSION}"
 
-          # 组装 DMG 根目录：app + 指向 /Applications 的符号链接
+          # 组装 DMG 根目录：app + 指向 /Applications 的符号链接（经典拖拽安装）
           STAGE="dmgstage"
           rm -rf "$STAGE"
           mkdir -p "$STAGE"
           cp -R ClipSync.app "$STAGE/"
           ln -s /Applications "$STAGE/Applications"
 
-          # 先用未压缩模板生成，再用 AppleScript 调好 Finder 窗口布局（图标位置/大小）
-          TEMP_DMG="../dist/${DMG_NAME}.temp.dmg"
-          hdiutil create -srcfolder "$STAGE" -volname "$VOLNAME" -fs HFS+ \
-            -fsargs "-c c=64,a=16,e=16" -format UDRW -ov "$TEMP_DMG"
-
-          DEVICE=$(hdiutil attach -readwrite -noverify "$TEMP_DMG" | awk 'END {print $1}')
-          VOL_PATH="/Volumes/${VOLNAME}"
-
-          # 设置窗口视图与图标位置（app 在左，Applications 在右）
-          osascript <<'APPLESCRIPT'
-          on run(argv)
-            set volPath to item 1 of argv
-            tell application "Finder"
-              tell disk volPath
-                open
-                set current view of container window to icon view
-                set toolbar visible of container window to false
-                set statusbar visible of container window to false
-                set the bounds of container window to {100, 100, 560, 340}
-                set viewOptions to the icon view options of container window
-                set arrangement of viewOptions to not arranged
-                set icon size of viewOptions to 96
-                set text size of viewOptions to 12
-                set position of item "ClipSync.app" of container window to {130, 110}
-                set position of item "Applications" of container window to {330, 110}
-                close
-                open
-                update without registering applications
-                delay 2
-              end tell
-            end tell
-          end run
-APPLESCRIPT
-
-          hdiutil detach "$DEVICE"
-          # 压缩成最终只读 DMG
-          hdiutil convert "$TEMP_DMG" -format UDZO -imagekey zlib-level=9 -o "../dist/$DMG_NAME"
-          rm -f "$TEMP_DMG"
+          hdiutil create -volname "$VOLNAME" -srcfolder "$STAGE" \
+            -ov -format UDZO -imagekey zlib-level=9 "$DMG_NAME"
           rm -rf "$STAGE"
 
           echo "DMG_NAME=$DMG_NAME" >> $GITHUB_ENV
-          cd ../dist && ls -la "$DMG_NAME"
+          ls -la "$DMG_NAME"
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
