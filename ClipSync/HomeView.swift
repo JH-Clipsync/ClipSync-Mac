@@ -22,6 +22,7 @@ struct HomeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 statusCard
+                onlineDevicesCard
                 serverCard
                 encryptionCard
                 syncCard
@@ -59,7 +60,7 @@ struct HomeView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                if let authError = ws.authError, ws.state == .disconnected {
+                if let authError = ws.authError {
                     Text(authError)
                         .font(.system(size: 11))
                         .foregroundStyle(.orange)
@@ -118,6 +119,76 @@ struct HomeView: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(statusColor.opacity(0.2), lineWidth: 1)
         )
+    }
+
+    // MARK: - 在线设备
+
+    private var onlineDevicesCard: some View {
+        cardSection(title: "在线设备", color: .teal) {
+            VStack(alignment: .leading, spacing: 8) {
+                if ws.state != .connected {
+                    HStack(spacing: 8) {
+                        Image(systemName: "wifi.slash")
+                            .foregroundStyle(.secondary)
+                        Text("连接服务器后显示在线设备")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+                } else if ws.onlineDevices.isEmpty {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("正在获取在线设备…")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    ForEach(ws.onlineDevices) { device in
+                        onlineDeviceRow(device)
+                    }
+                }
+            }
+        }
+    }
+
+    private func onlineDeviceRow(_ device: OnlineDevice) -> some View {
+        HStack(spacing: 10) {
+            ZStack {
+                Circle()
+                    .fill(Color.green.opacity(0.15))
+                    .frame(width: 30, height: 30)
+                Image(systemName: device.roleIcon)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.green)
+            }
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 6) {
+                    Text(device.roleLabel)
+                        .font(.system(size: 12, weight: .medium))
+                    if device.isSelf {
+                        Text("本机")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 5).padding(.vertical, 1)
+                            .background(Capsule().fill(Color.indigo))
+                    }
+                }
+                Text(device.ip)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Text(onlineTimeString(device.onlineAt))
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func onlineTimeString(_ millis: Int64) -> String {
+        let date = Date(timeIntervalSince1970: TimeInterval(millis) / 1000.0)
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm"
+        return f.string(from: date)
     }
 
     // MARK: - 服务器 / 账号
@@ -326,7 +397,9 @@ struct HomeView: View {
     private var statusText: String {
         switch ws.state {
         case .connected:    return "已连接"
-        case .connecting:   return "连接中…"
+        case .connecting:
+            // 有错误信息说明是断线重连中，不是首次连接
+            return ws.authError == nil ? "连接中…" : "重连中…"
         case .disconnected: return "未连接"
         }
     }

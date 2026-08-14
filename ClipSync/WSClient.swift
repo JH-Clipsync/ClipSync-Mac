@@ -9,7 +9,7 @@ import Combine
 // - 只有第一次 ping 成功后才置 .connected，避免"闪现已连接"的假象
 // ============================================================
 
-final class WSClient: ObservableObject {
+final class WSClient: NSObject, ObservableObject {
     static let shared = WSClient()
 
     enum ConnectionState: String { case connecting, connected, disconnected }
@@ -17,6 +17,9 @@ final class WSClient: ObservableObject {
     @Published var state: ConnectionState = .disconnected
     @Published var lastMessage: SyncMessage?
     @Published var history: [SyncMessage] = []
+
+    /// 当前账号下的在线设备列表（服务端 presence 推送实时更新）
+    @Published var onlineDevices: [OnlineDevice] = []
 
     /// 最近一次连接被服务端拒绝的原因（token 失效时提示用户重新登录）
     @Published var authError: String?
@@ -47,6 +50,13 @@ final class WSClient: ObservableObject {
     private var currentServer = ""
     private var currentToken = ""
 
+    /// 最近一次 WebSocket 握手返回的 HTTP 状态码。
+    ///
+    /// URLSession 在 WebSocket 握手失败（如 401）时，错误不会直接带 HTTP 状态码，
+    /// 只报 NSURLErrorBadServerResponse(-1011)，所以需要通过 URLSessionTaskDelegate
+    /// 在 didFinishCollectingMetrics 里把真实 statusCode 抓出来，供失败分类使用。
+    private var lastHandshakeStatus: Int?
+
     /// 用户主动断开时置 true，scheduleReconnect 据此跳过自动重连
     private var userInitiatedDisconnect = false
     /// 被服务端踢下线（密码重置/封禁）时置 true，阻止自动重连
@@ -55,13 +65,17 @@ final class WSClient: ObservableObject {
     private var authRetryCount = 0
     /// 自动重连尝试次数（指数退避：2, 4, 8, 16, 30, 30...）
     private var reconnectAttempts = 0
+    /// 连续遇到"服务端拒绝"（4xx 非 401）的次数，超过上限停止重连
+    private var hardFailureCount = 0
     private let maxReconnectDelay: TimeInterval = 30
+    /// 4xx（非 401/403）连续失败超过此次数后停止，避免无限撞墙
+    private let maxHardFailures = 3
 
     /// 最短 "连接中" 显示时间：进入 connecting 后至少停留 1.5s 才允许切回 disconnected
     private var connectingSince: Date?
     private let minConnectingDuration: TimeInterval = 1.5
 
-    private init() {}
+    private override init() { super.init() }
 
     // MARK: - 连接控制
 
@@ -179,37 +193,53 @@ final class WSClient: ObservableObject {
         }
     }
 
-    /// 启动连接。相同 server + token + isRunning 时直接跳过（防抖）
+    /// 启动连接（用户主动点"连接"时调用）。
+    /// 重置所有状态、错误计数，然后建立 WebSocket。
     func start(server: String, token: String) {
         if isRunning && server == currentServer && token == currentToken {
             NSLog("[WS] start 跳过：已在连接同一 server")
             return
         }
         stop()
-        guard !token.isEmpty else {
-            NSLog("[WS] start 失败：token 为空")
-            return
-        }
-        guard let url = URL(string: "\(server)/ws?token=\(token)&device=\(deviceID)&role=pc") else {
-            NSLog("[WS] start 失败：URL 非法 \(server)")
-            return
-        }
-        NSLog("[WS] → 正在连接 \(url.absoluteString)")
-
         isRunning = true
-        currentServer = server
-        currentToken = token
         userInitiatedDisconnect = false
         wasKicked = false
         authRetryCount = 0
         reconnectAttempts = 0
+        hardFailureCount = 0
+        currentServer = server
+        currentToken = token
         state = .connecting
         authError = nil
         connectingSince = Date()
+        openConnection(server: server, token: token)
+    }
 
-        session = URLSession(configuration: .default)
+    /// 实际建立 WebSocket 连接。首次连接和静默重连都走这里。
+    private func openConnection(server: String, token: String) {
+        guard !token.isEmpty else {
+            NSLog("[WS] openConnection 失败：token 为空")
+            return
+        }
+        guard let url = URL(string: "\(server)/ws?token=\(token)&device=\(deviceID)&role=pc") else {
+            NSLog("[WS] openConnection 失败：URL 非法 \(server)")
+            return
+        }
+        NSLog("[WS] → 正在连接 \(url.absoluteString)")
+
+        // 清理旧连接资源（重连时复用）
+        reconnectTimer?.invalidate(); reconnectTimer = nil
+        pingTimer?.invalidate(); pingTimer = nil
+        task?.cancel(with: .goingAway, reason: nil)
+
+        // 重置握手状态码，让 delegate 抓本次的真实响应
+        lastHandshakeStatus = nil
+        // 用自己作为 delegate，捕获 WebSocket 握手时的 HTTP 状态码
+        // （URLSession 默认配置在握手失败时不会把 401/403 透传到 error 里）
+        session = URLSession(configuration: .default, delegate: self, delegateQueue: .main)
         task = session?.webSocketTask(with: url)
         task?.resume()
+        isRunning = true
         receiveLoop()
         startPing()
         warmUpEncryptionKey()
@@ -237,6 +267,7 @@ final class WSClient: ObservableObject {
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
         state = .disconnected
+        onlineDevices = []
     }
 
     /// 用户主动断开：连 stop 一起把失败提示清掉，"手动断开"不是错误
@@ -310,7 +341,7 @@ final class WSClient: ObservableObject {
                 NSLog("[WS] ✗ 接收错误: \(err.localizedDescription)")
                 // 被踢下线后 isRunning=false，不再重连
                 guard self.isRunning else { return }
-                if !self.noteAuthFailureIfNeeded(err) {
+                if !self.handleFailure(err, source: "receive") {
                     self.scheduleReconnect(reason: Self.describeSocketFailure(err))
                 }
             case .success(let msg):
@@ -330,6 +361,17 @@ final class WSClient: ObservableObject {
             NSLog("[WS] ✗ 转换 UTF-8 失败: \(text.prefix(200))")
             return
         }
+
+        // presence 消息的 payload 是 {"devices":[...]}，跟业务消息的 MessagePayload 结构不同，
+        // 在整体 decode 成 SyncMessage 之前先单独解析并更新在线设备列表。
+        if let presence = decodePresence(data) {
+            DispatchQueue.main.async {
+                self.onlineDevices = presence.payload.devices
+            }
+            NSLog("[WS] 👥 在线设备更新：\(presence.payload.devices.count) 台")
+            return
+        }
+
         let decoder = JSONDecoder()
         // 允许服务端额外加字段，不因未知字段 decode 失败丢整条消息
         guard let msg = try? decoder.decode(SyncMessage.self, from: data) else {
@@ -395,6 +437,23 @@ final class WSClient: ObservableObject {
         }
     }
 
+    // MARK: - 在线设备（presence）
+
+    private struct PresenceEnvelope: Codable {
+        var type: String
+        var payload: PayloadBody
+        struct PayloadBody: Codable {
+            var devices: [OnlineDevice]
+        }
+    }
+
+    /// 若原始 JSON 是服务端下发的 presence 消息，解析出设备列表；否则返回 nil。
+    private func decodePresence(_ data: Data) -> PresenceEnvelope? {
+        guard let env = try? JSONDecoder().decode(PresenceEnvelope.self, from: data),
+              env.type == MessageType.presence else { return nil }
+        return env
+    }
+
     // MARK: - 心跳 / 重连
 
     private func startPing() {
@@ -412,7 +471,7 @@ final class WSClient: ObservableObject {
                 guard let self, self.isRunning else { return }
                 if let err = err {
                     NSLog("[WS] ⚠ ping 失败: \(err.localizedDescription)")
-                    if !self.noteAuthFailureIfNeeded(err) {
+                    if !self.handleFailure(err, source: "ping") {
                         if self.state != .disconnected {
                             self.scheduleReconnect(reason: Self.describeSocketFailure(err))
                         }
@@ -421,6 +480,7 @@ final class WSClient: ObservableObject {
                     self.state = .connected
                     self.connectingSince = nil
                     self.reconnectAttempts = 0
+                    self.hardFailureCount = 0
                     self.authRetryCount = 0
                     // 连上了，之前的失败提示就该消失
                     self.authError = nil
@@ -430,27 +490,116 @@ final class WSClient: ObservableObject {
         }
     }
 
-    // MARK: - 鉴权失败识别
+    // MARK: - 失败分类与重连决策
 
-    /// 服务端在 token 失效时用 HTTP 401 拒绝 WS 升级，URLSession 会把它们
-    /// 报成握手错误。这里把它翻译成一句用户能看懂的提示。
-    /// 返回 true 表示已识别为鉴权失败并自行触发了重新登录，调用方无需再 scheduleReconnect。
-    @discardableResult
-    private func noteAuthFailureIfNeeded(_ error: Error) -> Bool {
+    /// 失败类型：决定是否重连、用什么策略重连
+    private enum FailureKind {
+        case authExpired       // 401：token 过期，尝试重新登录
+        case forbidden         // 403：被服务端拒绝，不重连
+        case hardReject        // 其他 4xx：有限次重试后停止
+        case serverError       // 5xx：服务端临时问题，持续退避
+        case network           // 网络问题（断网/DNS/超时），持续退避
+        case unknown
+    }
+
+    private func classifyFailure(_ error: Error) -> FailureKind {
         let ns = error as NSError
-        let desc = ns.localizedDescription
-        let looksLikeAuth = desc.contains("401") || desc.contains("Unauthorized")
-            || ns.code == 401
-        guard looksLikeAuth else { return false }
-        // 已被服务端踢下线，不再尝试重新登录
+        // 诊断日志
+        NSLog("[WS] 🔍 classifyFailure domain=\(ns.domain) code=\(ns.code) desc=\(ns.localizedDescription) handshakeStatus=\(lastHandshakeStatus.map { String($0) } ?? "nil")")
+
+        // 1) 优先用 delegate 抓到的真实握手 HTTP 状态码（最可靠）
+        if let status = lastHandshakeStatus {
+            switch status {
+            case 401: return .authExpired
+            case 403: return .forbidden
+            case 400..<500: return .hardReject
+            case 500..<600: return .serverError
+            default: break
+            }
+        }
+        // 2) 再试从 error.userInfo 里提
+        if let status = Self.extractHTTPStatus(from: error) {
+            switch status {
+            case 401: return .authExpired
+            case 403: return .forbidden
+            case 400..<500: return .hardReject
+            case 500..<600: return .serverError
+            default: break
+            }
+        }
+        // 3) NSURLErrorBadServerResponse 拿不到 status 时：
+        //    既然别的客户端能连，Mac 大概率是 token 过期，按 authExpired 处理触发重新登录
+        if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorBadServerResponse {
+            NSLog("[WS] 🔍 握手失败且无状态码，判定为 token 过期，尝试重新登录")
+            return .authExpired
+        }
+        // 网络类错误
+        if ns.domain == NSURLErrorDomain {
+            switch ns.code {
+            case NSURLErrorNotConnectedToInternet,
+                 NSURLErrorNetworkConnectionLost,
+                 NSURLErrorCannotConnectToHost,
+                 NSURLErrorCannotFindHost,
+                 NSURLErrorDNSLookupFailed,
+                 NSURLErrorTimedOut:
+                return .network
+            default:
+                return .unknown
+            }
+        }
+        return .unknown
+    }
+
+    /// 统一处理失败：分类后决定是重连、重新登录还是停止。
+    /// 返回 true 表示已自行处理（调用方不用再调 scheduleReconnect）。
+    @discardableResult
+    private func handleFailure(_ error: Error, source: String) -> Bool {
+        let kind = classifyFailure(error)
+        NSLog("[WS] ✗ [\(source)] 失败类型=\(kind) desc=\(error.localizedDescription)")
+
+        switch kind {
+        case .authExpired:
+            return handleAuthExpired()
+        case .forbidden:
+            DispatchQueue.main.async {
+                self.wasKicked = true
+                self.reconnectTimer?.invalidate()
+                self.reconnectTimer = nil
+                self.state = .disconnected
+                self.authError = "服务端拒绝连接（403），请检查账号状态或联系管理员"
+            }
+            return true
+        case .hardReject:
+            hardFailureCount += 1
+            if hardFailureCount >= maxHardFailures {
+                let status = Self.extractHTTPStatus(from: error) ?? 0
+                DispatchQueue.main.async {
+                    self.reconnectTimer?.invalidate()
+                    self.reconnectTimer = nil
+                    self.state = .disconnected
+                    self.authError = "服务端连续返回错误（HTTP \(status)），已停止重连，请检查配置"
+                    NSLog("[WS] 🔴 连续 \(self.hardFailureCount) 次 4xx，停止重连")
+                }
+                return true
+            }
+            return false // 继续走指数退避重连
+        case .serverError, .network, .unknown:
+            return false // 继续走指数退避重连
+        }
+    }
+
+    /// 401 处理：token 失效，用保存的账号密码重新换 token
+    private func handleAuthExpired() -> Bool {
         if wasKicked { return true }
-        // 只允许重新登录 1 次，超过说明密码已被改
         authRetryCount += 1
         if authRetryCount > 1 {
             NSLog("[WS] 🔒 重新登录仍失败（第\(authRetryCount)次），密码可能已被重置")
             DispatchQueue.main.async {
                 self.wasKicked = true
-                self.authError = "密码已失效，请重新登录"
+                self.reconnectTimer?.invalidate()
+                self.reconnectTimer = nil
+                self.state = .disconnected
+                self.authError = "登录已失效，请在设置中重新填写密码后手动连接"
             }
             return true
         }
@@ -458,7 +607,9 @@ final class WSClient: ObservableObject {
             NSLog("[WS] 🔒 token 已失效，尝试用已保存的账号密码重新换取（第\(self.authRetryCount)次）")
             let settings = SettingsStore.shared
             guard settings.hasCredentials else {
+                self.wasKicked = true
                 self.authError = "登录已失效，请到设置里填写账号密码"
+                self.state = .disconnected
                 return
             }
             self.reconnectTimer?.invalidate(); self.reconnectTimer = nil
@@ -471,25 +622,68 @@ final class WSClient: ObservableObject {
     /// 把 URLSession 的底层错误翻成用户能看懂的一句话
     static func describeSocketFailure(_ error: Error) -> String {
         let ns = error as NSError
+
+        // 优先根据 HTTP 状态码给出精确描述
+        if let status = Self.extractHTTPStatus(from: error) {
+            switch status {
+            case 400: return "服务器拒绝了请求（400），请检查服务器地址是否正确"
+            case 401: return "登录已失效，正在尝试自动重新登录…"
+            case 403: return "服务器拒绝访问（403），请检查账号状态"
+            case 404: return "服务器地址无效（404），请检查路径是否正确"
+            case 408: return "服务器响应超时（408），请稍后自动重连"
+            case 413: return "消息内容过大，被服务器拒绝（413）"
+            case 429: return "请求过于频繁，被服务器限流（429）"
+            case 500: return "服务器内部错误（500），稍后自动重连"
+            case 502: return "服务器网关错误（502），服务可能正在重启"
+            case 503: return "服务器暂时不可用（503），稍后自动重连"
+            case 504: return "服务器网关超时（504），稍后自动重连"
+            default:
+                if status >= 500 { return "服务器错误（HTTP \(status)），稍后自动重连" }
+                if status >= 400 { return "服务器返回错误（HTTP \(status)），请检查配置" }
+            }
+        }
+
         guard ns.domain == NSURLErrorDomain else {
             return "连接中断：\(ns.localizedDescription)"
         }
         switch ns.code {
+        case NSURLErrorBadServerResponse:
+            return "服务器返回了无效响应，请检查服务器地址和协议（ws/wss）"
         case NSURLErrorNotConnectedToInternet:
             return "网络不可用，请检查本机网络连接"
         case NSURLErrorCannotFindHost, NSURLErrorDNSLookupFailed:
             return "找不到服务器，请检查服务器地址"
         case NSURLErrorCannotConnectToHost:
-            return "服务器拒绝连接，请确认地址、端口和服务是否已启动"
+            return "无法连接到服务器，请确认地址、端口和服务是否已启动"
         case NSURLErrorTimedOut:
             return "连接服务器超时，请检查网络或服务器状态"
         case NSURLErrorSecureConnectionFailed, NSURLErrorServerCertificateUntrusted:
             return "TLS 握手失败，请确认服务器证书配置"
         case NSURLErrorNetworkConnectionLost:
-            return "网络连接已断开，请重新连接"
+            return "网络连接已断开，正在自动重连…"
+        case NSURLErrorUserCancelledAuthentication:
+            return "服务器要求认证，请检查用户名和密码"
+        case NSURLErrorUserAuthenticationRequired:
+            return "认证失败，请检查用户名和密码"
         default:
             return "连接失败：\(ns.localizedDescription)"
         }
+    }
+
+    /// 从 URLSession 错误中提取 HTTP 状态码（供 describeSocketFailure 用）
+    private static func extractHTTPStatus(from error: Error) -> Int? {
+        let ns = error as NSError
+        if let code = ns.userInfo["HTTPResponseStatusCode"] as? Int { return code }
+        if let resp = ns.userInfo[NSURLErrorFailingURLErrorKey] as? HTTPURLResponse {
+            return resp.statusCode
+        }
+        if let resp = ns.userInfo["NSErrorFailingURLKey"] as? HTTPURLResponse {
+            return resp.statusCode
+        }
+        if let match = ns.localizedDescription.range(of: "\\b(\\d{3})\\b", options: .regularExpression) {
+            return Int(ns.localizedDescription[match])
+        }
+        return nil
     }
 
     private func scheduleReconnect(reason: String? = nil) {
@@ -506,44 +700,85 @@ final class WSClient: ObservableObject {
             }
 
             // 清理当前连接资源，但保留 server/token 供重连使用
-            self.isRunning = false
             self.task?.cancel(with: .goingAway, reason: nil)
             self.task = nil
             self.pingTimer?.invalidate(); self.pingTimer = nil
 
-            // 保证 "连接中" 至少显示 minConnectingDuration
-            let minDelay: TimeInterval = {
-                guard let started = self.connectingSince else { return 0 }
-                let elapsed = Date().timeIntervalSince(started)
-                return max(0, self.minConnectingDuration - elapsed)
-            }()
-
-            // 指数退避：2, 4, 8, 16, 30, 30...
-            let backoff = min(pow(2.0, Double(self.reconnectAttempts)), self.maxReconnectDelay)
+            // 指数退避：3, 6, 12, 24, 30, 30...
+            // 首次至少 3 秒，给用户留足操作时间，避免 UI 疯狂刷新
+            let backoff = min(3.0 * pow(2.0, Double(self.reconnectAttempts)), self.maxReconnectDelay)
             self.reconnectAttempts += 1
-            let delay = max(backoff, minDelay)
+            let delay = backoff
 
-            self.state = .disconnected
-            self.connectingSince = nil
+            // 重连期间保持 .connecting 状态，不切到 .disconnected，
+            // 这样 UI 不会在"连接/未连接"之间反复跳动，用户可以正常点按钮
+            self.state = .connecting
+            self.connectingSince = Date()
+            // 错误原因只在第一次断开时设置，避免反复覆盖
             if let reason, self.authError == nil {
                 self.authError = reason
             }
 
             let server = self.currentServer
             let token = self.currentToken
-            NSLog("[WS] 🔄 \(Int(delay))秒后自动重连（第\(self.reconnectAttempts)次）→ \(server)")
+            NSLog("[WS] 🔄 \(Int(delay))秒后静默重连（第\(self.reconnectAttempts)次）→ \(server)")
 
             self.reconnectTimer?.invalidate()
             self.reconnectTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
-                guard let self, !self.userInitiatedDisconnect else { return }
+                guard let self, !self.userInitiatedDisconnect, !self.wasKicked else { return }
                 guard !server.isEmpty, !token.isEmpty else {
                     NSLog("[WS] ✗ 重连失败：server 或 token 为空")
                     return
                 }
-                NSLog("[WS] 🔄 正在自动重连 → \(server)")
-                self.start(server: server, token: token)
+                NSLog("[WS] 🔄 正在静默重连 → \(server)")
+                // 静默重连：不重置 isRunning，不闪 UI；
+                // 保留上次的 authError，让用户看到重连原因，直到连上才清
+                self.currentServer = server
+                self.currentToken = token
+                self.openConnection(server: server, token: token)
             }
             RunLoop.main.add(self.reconnectTimer!, forMode: .common)
         }
+    }
+}
+
+// MARK: - URLSessionTaskDelegate
+
+/// 用 delegate 捕获 WebSocket 握手时的真实 HTTP 状态码。
+///
+/// URLSession 的 webSocketTask 在握手失败（服务端返回 401/403/5xx 等非 101 响应）时，
+/// error 只会是 NSURLErrorBadServerResponse(-1011)，不携带状态码，导致我们无法
+/// 区分"token 过期"和"服务端 500"。这里从 transactionMetrics 里把 response 抓出来，
+/// classifyFailure 会优先读 lastHandshakeStatus 做准确判断。
+extension WSClient: URLSessionTaskDelegate, URLSessionWebSocketDelegate {
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didFinishCollecting metrics: URLSessionTaskMetrics
+    ) {
+        for trans in metrics.transactionMetrics {
+            if let http = trans.response as? HTTPURLResponse {
+                lastHandshakeStatus = http.statusCode
+                NSLog("[WS] 📡 握手 HTTP \(http.statusCode)")
+                break
+            }
+        }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        webSocketTask: URLSessionWebSocketTask,
+        didOpenWithProtocol protocol: String?
+    ) {
+        NSLog("[WS] ✅ WebSocket 已打开")
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        webSocketTask: URLSessionWebSocketTask,
+        didCloseWith closeCode: URLSessionWebSocketTask.CloseCode,
+        reason: Data?
+    ) {
+        NSLog("[WS] 🔌 WebSocket 已关闭 code=\(closeCode.rawValue)")
     }
 }

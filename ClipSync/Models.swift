@@ -33,6 +33,44 @@ enum MessageType {
     static let notifyAll    = "notify_all"     // 广播
     static let clipboard    = "clipboard"      // 剪贴板同步
     static let serverKick   = "server_kick"    // 服务端踢下线通知
+    static let presence     = "presence"       // 在线设备列表变更（服务端下发）
+}
+
+/// 在线设备（服务端 presence 消息里的一台设备）
+struct OnlineDevice: Codable, Identifiable, Equatable {
+    var deviceID: String
+    var role: String
+    var ip: String
+    var onlineAt: Int64
+    var isSelf: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case deviceID = "device_id"
+        case role
+        case ip
+        case onlineAt = "online_at"
+        case isSelf = "self"
+    }
+
+    var id: String { deviceID }
+
+    /// 角色中文标签
+    var roleLabel: String {
+        switch role {
+        case "mobile": return "手机"
+        case "pc":     return "电脑"
+        default:       return role
+        }
+    }
+
+    /// 设备类型图标
+    var roleIcon: String {
+        switch role {
+        case "mobile": return "iphone"
+        case "pc":     return "desktopcomputer"
+        default:       return "questionmark.circle"
+        }
+    }
 }
 
 /// 消息业务子类型（payload.kind）

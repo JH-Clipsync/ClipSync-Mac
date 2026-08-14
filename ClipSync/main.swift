@@ -99,11 +99,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .connected:
             symbolName = "bubble.left.and.bubble.right.fill"
             accessibility = "ClipSync 已连接"
-
         case .connecting:
             symbolName = "arrow.triangle.2.circlepath"
             accessibility = "ClipSync 连接中"
-
         case .disconnected:
             symbolName = "bubble.left.and.bubble.right"
             accessibility = "ClipSync 未连接"
@@ -113,14 +111,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let cfg = NSImage.SymbolConfiguration(pointSize: 17, weight: .medium)
+        // 三个图标统一用相同的 pointSize / weight / 画布，
+        // 连接中的箭头图标之前比气泡大一圈就是因为它的 SF Symbol 边界更大。
+        let cfg = NSImage.SymbolConfiguration(pointSize: 15, weight: .medium)
         let sized = base.withSymbolConfiguration(cfg) ?? base
         sized.isTemplate = true
 
-        // 切屏/多屏下系统按原像素绘制，SF Symbol 矢量边界可能超出导致裁切。
-        // 重绘成 22pt 固定位图（与相邻菜单栏图标对称），
-        // 图形按自身边界自动居中裁剪，保证任何屏幕密度下都完整显示。
-        let side: CGFloat = 22
+        let side: CGFloat = 18
         let icon = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
             let s = sized.size
             let fit = min(rect.width / max(s.width, 1), rect.height / max(s.height, 1))
