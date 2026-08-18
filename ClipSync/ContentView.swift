@@ -10,12 +10,11 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject var settings: SettingsStore
     @EnvironmentObject var ws: WSClient
-
-    @State private var selection: SidebarItem = .home
+    @EnvironmentObject var router: AppRouter
 
     var body: some View {
         NavigationSplitView {
-            List(SidebarItem.allCases, selection: $selection) { item in
+            List(SidebarItem.allCases, selection: $router.selection) { item in
                 NavigationLink(value: item) {
                     Label(item.title, systemImage: item.icon)
                 }
@@ -24,14 +23,14 @@ struct ContentView: View {
             .navigationTitle("ClipSync")
         } detail: {
             detail
-                .navigationTitle(selection.title)
+                .navigationTitle(router.selection.title)
         }
         .navigationSplitViewStyle(.balanced)
     }
 
     @ViewBuilder
     private var detail: some View {
-        switch selection {
+        switch router.selection {
         case .home:      HomeView()
         case .sms:       HistoryView(filter: .sms)
         case .clipboard: HistoryView(filter: .clipboard)

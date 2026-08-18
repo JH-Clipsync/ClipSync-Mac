@@ -17,6 +17,15 @@ struct HomeView: View {
 
     @State private var pushToast: String? = nil
 
+    // 设备重命名
+    @State private var renameTarget: OnlineDevice?
+    @State private var renameText: String = ""
+    @State private var renameSaving: Bool = false
+    @State private var renameError: String?
+
+    // 当前鼠标悬停的设备行（用于高亮 + 显示改名提示）
+    @State private var hoveredDevice: String? = nil
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -30,6 +39,81 @@ struct HomeView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Color(nsColor: .windowBackgroundColor))
+        .sheet(item: $renameTarget) { device in
+            renameSheet(device)
+        }
+    }
+
+    // MARK: - 设备重命名弹窗
+    private func renameSheet(_ device: OnlineDevice) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("重命名设备")
+                .font(.system(size: 14, weight: .semibold))
+
+            TextField("新名称", text: $renameText)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit { performRename(device) }
+
+            if let renameError {
+                Text(renameError)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.red)
+            }
+
+            HStack {
+                Spacer()
+                Button("取消") { renameTarget = nil }
+                    .keyboardShortcut(.cancelAction)
+                Button {
+                    performRename(device)
+                } label: {
+                    if renameSaving {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Text("保存")
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(renameSaving)
+            }
+        }
+        .padding(18)
+        .frame(width: 300)
+    }
+
+    private func performRename(_ device: OnlineDevice) {
+        let name = String(renameText.trimmingCharacters(in: .whitespacesAndNewlines).prefix(32))
+        guard !renameSaving else { return }
+        renameError = nil
+        renameSaving = true
+        Task {
+            do {
+                try await AuthClient.shared.renameDevice(
+                    server: settings.serverURL,
+                    token: settings.token,
+                    deviceID: device.deviceID,
+                    name: name
+                )
+                await MainActor.run {
+                    renameSaving = false
+                    renameTarget = nil
+                    // 如果改的是本机，把名字持久化到本地，
+                    // 下次握手用这个名字，不会再被系统主机名覆盖回去
+                    if device.deviceID == ws.deviceID {
+                        settings.customDeviceName = name
+                    }
+                    pushToast = "已更新设备名称"
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        if pushToast == "已更新设备名称" { pushToast = nil }
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    renameSaving = false
+                    renameError = error.localizedDescription
+                }
+            }
+        }
     }
 
     // MARK: - 状态卡
@@ -147,19 +231,19 @@ struct HomeView: View {
     }
 
     private func onlineDeviceRow(_ device: OnlineDevice) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 10) {
-                ZStack {
-                    Circle()
-                        .fill(Color.green.opacity(0.15))
-                        .frame(width: 30, height: 30)
-                    Image(systemName: device.platformIcon)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.green)
-                }
+        HStack(alignment: .center, spacing: 10) {
+            ZStack {
+                Circle()
+                    .fill(Color.green.opacity(0.15))
+                    .frame(width: 30, height: 30)
+                Image(systemName: device.platformIcon)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.green)
+            }
+            VStack(alignment: .leading, spacing: 5) {
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 6) {
-                        Text(device.platformLabel)
+                        Text(device.displayName)
                             .font(.system(size: 12, weight: .medium))
                         if device.isSelf {
                             Text("本机")
@@ -167,6 +251,11 @@ struct HomeView: View {
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 5).padding(.vertical, 1)
                                 .background(Capsule().fill(Color.indigo))
+                        }
+                        if !(device.name ?? "").trimmingCharacters(in: .whitespaces).isEmpty {
+                            Text(device.platformLabel)
+                                .font(.system(size: 9))
+                                .foregroundStyle(.secondary)
                         }
                     }
                     HStack(spacing: 6) {
@@ -180,20 +269,60 @@ struct HomeView: View {
                     }
                     .foregroundStyle(.secondary)
                 }
-                Spacer()
+                // 同步开关状态标签
+                HStack(spacing: 5) {
+                    capTag("剪贴板", on: device.clipUp)
+                    capTag("短信", on: device.smsIn)
+                    capTag("自动接收", on: device.autoPut)
+                }
+            }
+            Spacer(minLength: 8)
+            // 右侧：平时显示上线时间，悬停时显示「重命名」按钮
+            if hoveredDevice == device.deviceID {
+                Button {
+                    renameTarget = device
+                    renameText = device.name ?? ""
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "pencil")
+                            .font(.system(size: 11, weight: .bold))
+                        Text("重命名")
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(Color.accentColor)
+                    )
+                    .foregroundStyle(.white)
+                    .fixedSize()
+                }
+                .buttonStyle(.plain)
+                .onHover { hovering in
+                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                }
+                .transition(.opacity)
+            } else {
                 Text(onlineTimeString(device.onlineAt))
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
+                    .transition(.opacity)
             }
-            // 同步开关状态标签
-            HStack(spacing: 5) {
-                capTag("剪贴板", on: device.clipUp)
-                capTag("短信", on: device.smsIn)
-                capTag("自动接收", on: device.autoPut)
-            }
-            .padding(.leading, 40)
         }
-        .padding(.vertical, 3)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(hoveredDevice == device.deviceID
+                      ? Color.accentColor.opacity(0.10)
+                      : Color.clear)
+        )
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.12)) {
+                hoveredDevice = hovering ? device.deviceID : nil
+            }
+        }
     }
 
     private func capTag(_ text: String, on: Bool) -> some View {

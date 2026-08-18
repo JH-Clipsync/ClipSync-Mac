@@ -18,6 +18,8 @@ struct ToastView: View {
     let onCopyCode: () -> Void   // 只复制验证码
     let onCopyAll: () -> Void    // 复制全文/剪贴板整体
     let onClose: () -> Void
+    /// 点击弹窗内容区（非按钮区域）时：打开主窗口并跳到对应 Tab
+    let onOpen: () -> Void
 
     @State private var codeCopied = false
     @State private var allCopied = false
@@ -71,6 +73,18 @@ struct ToastView: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: ToastStyle.cornerRadius, style: .continuous))
         .shadow(color: ToastStyle.shadowColor, radius: 20, y: 6)
+        // 点击弹窗主体区域（标题/正文/图标）→ 打开主窗口跳到对应 Tab。
+        // 复制按钮和关闭按钮都有自己的 onTapGesture，SwiftUI 里子视图的手势
+        // 会优先消费掉点击，不会冒泡到这里。
+        .contentShape(RoundedRectangle(cornerRadius: ToastStyle.cornerRadius, style: .continuous))
+        .onTapGesture { onOpen() }
+        .onHover { hovering in
+            if hovering {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
     }
 
     private var isImage: Bool {
@@ -301,7 +315,11 @@ struct ToastView: View {
     }
 
     private var title: String {
-        if message.looksLikeSms { return "短信验证码" }
+        if message.looksLikeSms {
+            // 只有真的抽到了验证码才叫"短信验证码"；
+            // 普通通知类/个人短信只叫"短信"
+            return extractedCode != nil ? "短信验证码" : "短信"
+        }
         switch message.kind {
         case MessageKind.image:   return "剪贴板图片"
         case MessageKind.share:   return "分享"
@@ -357,6 +375,72 @@ struct ToastView: View {
         case MessageKind.share:   return "square.and.arrow.up.fill"
         default:                  return "doc.on.clipboard"
         }
+    }
+}
+
+// MARK: - 简洁通知（设备上下线等状态提示）
+
+/// 只有「图标 + 标题 + 正文 + 关闭」的轻量通知横幅，样式与 ToastView 一致。
+struct InfoToastView: View {
+    let title: String
+    let detail: String
+    let icon: String
+    let tint: Color
+    let onClose: () -> Void
+    var onOpen: (() -> Void)? = nil
+
+    private let width: CGFloat = 360
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(tint.opacity(0.12))
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(tint)
+            }
+            .frame(width: 34, height: 34)
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 16, height: 16)
+                        .background(Color.primary.opacity(0.08), in: Circle())
+                        .contentShape(Circle())
+                        .onTapGesture { onClose() }
+                }
+                Text(detail)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.primary.opacity(0.8))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(width: width, alignment: .topLeading)
+        .background(
+            ZStack {
+                VisualEffectBlur(material: .popover, blendingMode: .behindWindow, cornerRadius: ToastStyle.cornerRadius)
+                ToastStyle.backdropTint
+            }
+            .clipShape(RoundedRectangle(cornerRadius: ToastStyle.cornerRadius, style: .continuous))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: ToastStyle.cornerRadius, style: .continuous)
+                .strokeBorder(ToastStyle.borderColor, lineWidth: ToastStyle.borderWidth)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: ToastStyle.cornerRadius, style: .continuous))
+        .shadow(color: ToastStyle.shadowColor, radius: 20, y: 6)
+        .contentShape(RoundedRectangle(cornerRadius: ToastStyle.cornerRadius, style: .continuous))
+        .onTapGesture { onOpen?() }
     }
 }
 

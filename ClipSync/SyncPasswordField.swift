@@ -14,8 +14,6 @@ struct SyncPasswordField: View {
     @ObservedObject var settings: SettingsStore
     /// 明文/密文由外部持有，切换页面时状态不会丢
     @Binding var isRevealed: Bool
-    /// 提示文字的字号，主界面和设置页各有各的排版
-    var captionSize: CGFloat = 11
 
     @State private var draft = ""
     @State private var loaded = false
@@ -34,10 +32,6 @@ struct SyncPasswordField: View {
                     .disabled(!isDirty)
                     .help("保存同步密码并重新派生密钥")
             }
-
-            Text("留空则使用内置默认密码；已修改需点「确定」生效")
-                .font(.system(size: captionSize))
-                .foregroundStyle(isDirty ? .orange : .secondary)
         }
         // 首次出现时把已保存的密码填进草稿
         .task {

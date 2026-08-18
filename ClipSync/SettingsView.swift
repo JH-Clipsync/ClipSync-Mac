@@ -44,23 +44,27 @@ struct SettingsView: View {
     @ViewBuilder
     private var connectionSection: some View {
         Section("账号") {
-            // 地址只填 host:port，ws:// 由 ServerAddress.normalize 补齐
-            TextField("服务器地址，例如 192.168.1.10:8080", text: $settings.serverURL)
-                .disabled(ws.state != .disconnected)
-            Text(resolvedServerHint)
-                .font(.system(.caption, design: .monospaced))
-                .foregroundStyle(.secondary)
+            labeledField(label: "服务器地址", icon: "network") {
+                TextField("", text: $settings.serverURL)
+                    .textFieldStyle(.plain)
+            }
+            .disabled(ws.state != .disconnected)
 
-            // 账号密码常驻显示：连接时才做校验，所以没有单独的「登录」按钮。
-            // 账号由管理员在服务端创建，客户端不提供注册入口。
-            TextField("用户名", text: $settings.username)
-                .disabled(ws.state != .disconnected)
-            RevealPasswordField(
-                title: "密码",
-                text: $settings.password,
-                isRevealed: $revealLoginPassword,
-                isEnabled: ws.state == .disconnected
-            )
+            labeledField(label: "用户名", icon: "person.fill") {
+                TextField("", text: $settings.username)
+                    .textFieldStyle(.plain)
+            }
+            .disabled(ws.state != .disconnected)
+
+            labeledField(label: "密码", icon: "lock.fill") {
+                RevealPasswordField(
+                    title: "",
+                    text: $settings.password,
+                    isRevealed: $revealLoginPassword,
+                    isEnabled: ws.state == .disconnected,
+                    showLabel: false
+                )
+            }
 
             // 快速操作：连接 / 断开。设置是实时绑定的，点「连接」即按当前填写的值生效。
             HStack(spacing: 10) {
@@ -98,19 +102,45 @@ struct SettingsView: View {
                         .foregroundStyle(.green)
                 }
             }
-            .padding(.top, 2)
-
-            if !settings.hasCredentials {
-                Text("请填写用户名和密码（账号由管理员创建）")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            .padding(.top, 4)
 
             if let authError = ws.authError {
                 Label(authError, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
+        }
+    }
+
+    /// 统一的「短标签 + 图标 + 带边框输入框」行，让输入区域明显可点。
+    @ViewBuilder
+    private func labeledField<Content: View>(
+        label: String,
+        icon: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        HStack(alignment: .center, spacing: 10) {
+            Text(label)
+                .font(.body)
+                .foregroundStyle(.primary)
+                .frame(alignment: .leading)
+            Spacer(minLength: 16)
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 16)
+                content()
+            }
+            .padding(.horizontal, 8)
+            .frame(width: 300, height: 28, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color(nsColor: .separatorColor))
+            )
         }
     }
 
@@ -126,8 +156,7 @@ struct SettingsView: View {
                 // 密码要点「确定」才保存：派生密钥很贵，不能跟着每次按键跑
                 SyncPasswordField(
                     settings: settings,
-                    isRevealed: $revealSyncPassword,
-                    captionSize: 12
+                    isRevealed: $revealSyncPassword
                 )
             }
 
@@ -160,12 +189,6 @@ struct SettingsView: View {
             // 指纹在后台算，不阻塞 body 求值
             FingerprintLabel(password: settings.effectiveSyncPassword)
         }
-    }
-
-    /// 回显程序真正会连的地址，用户不用猜前缀补成了什么
-    private var resolvedServerHint: String {
-        let normalized = ServerAddress.normalize(settings.serverURL)
-        return normalized.isEmpty ? "请填写服务器地址" : "将连接 \(normalized)"
     }
 
     // MARK: - 动作

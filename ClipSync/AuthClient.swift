@@ -94,6 +94,12 @@ final class AuthClient {
         _ = try await post(server: server, path: "/auth/logout", body: [:], token: token)
     }
 
+    /// POST /device/name —— 给指定设备设置自定义名称（服务端会实时广播给所有在线端）
+    func renameDevice(server: String, token: String, deviceID: String, name: String) async throws {
+        let body = ["device_id": deviceID, "name": name]
+        _ = try await post(server: server, path: "/device/name", body: body, token: token)
+    }
+
     // MARK: - 内部
 
     private func post(server: String, path: String,

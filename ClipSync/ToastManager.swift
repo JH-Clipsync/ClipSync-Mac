@@ -25,6 +25,14 @@ final class ToastManager {
 
     private init() {}
 
+    /// 简洁通知（用于设备上下线等状态提示）：标题 + 正文，无操作按钮。
+    func showInfo(title: String, body: String, icon: String = "bell.fill", tint: Color = .accentColor) {
+        show(signal: "info|\(title)|\(body)", view: InfoToastView(
+            title: title, detail: body, icon: icon, tint: tint,
+            onClose: { [weak self] in self?.dismissTop() }
+        ), width: 360)
+    }
+
     func show(message: SyncMessage) {
         // 3 秒内相同内容不再重复弹
         let sig = "\(message.type)|\(message.payload.text ?? message.payload.preview ?? "")"
@@ -34,17 +42,6 @@ final class ToastManager {
         lastSig = sig
         lastTime = Date()
 
-        // 同屏只留一条：新消息直接挤掉旧窗
-        for old in windows {
-            let key = ObjectIdentifier(old)
-            dismissWork[key]?.cancel()
-            dismissWork[key] = nil
-            old.orderOut(nil)
-        }
-        windows.removeAll()
-
-        let win = ToastWindow()
-
         // 短信类 → 尝试抽取验证码
         let code: String? = {
             guard message.looksLikeSms else { return nil }
@@ -52,6 +49,7 @@ final class ToastManager {
             return SmsCodeExtractor.extract(from: text)
         }()
 
+        let win = ToastWindow()
         let content = ToastView(
             message: message,
             showContent: SettingsStore.shared.showContent,
@@ -71,8 +69,42 @@ final class ToastManager {
             onClose: { [weak self, weak win] in
                 guard let self, let w = win else { return }
                 self.dismiss(w)
+            },
+            onOpen: { [weak self, weak win] in
+                guard let self, let w = win else { return }
+                // 先关掉弹窗，再打开主窗口跳到对应 Tab
+                self.dismiss(w)
+                let target: SidebarItem = message.looksLikeSms ? .sms : .clipboard
+                AppRouter.shared.open(target)
             }
         )
+        present(win: win, content: content, width: content.windowWidth, signal: sig)
+    }
+
+    /// 简洁通知通用入口：去重 → 清掉旧窗 → 摆放并淡入。
+    private func show<V: View>(signal: String, view: V, width: CGFloat) {
+        if signal == lastSig, Date().timeIntervalSince(lastTime) < 3 {
+            return
+        }
+        lastSig = signal
+        lastTime = Date()
+
+        let win = ToastWindow()
+        let content = view
+        present(win: win, content: content, width: width, signal: signal)
+    }
+
+    /// 把 SwiftUI 内容装进 ToastWindow 并显示（show / showInfo 共用）。
+    private func present<V: View>(win: ToastWindow, content: V, width: CGFloat, signal: String) {
+        // 同屏只留一条：新通知直接挤掉旧窗
+        for old in windows {
+            let key = ObjectIdentifier(old)
+            dismissWork[key]?.cancel()
+            dismissWork[key] = nil
+            old.orderOut(nil)
+        }
+        windows.removeAll()
+
         // NSHostingView 会根据 SwiftUI 内容计算 fittingSize，我们用它做窗口大小
         let hosting = NSHostingView(rootView: content)
         hosting.translatesAutoresizingMaskIntoConstraints = false
@@ -83,16 +115,11 @@ final class ToastManager {
         hosting.layer?.cornerCurve = .continuous
         hosting.layer?.masksToBounds = true
         win.contentView = hosting
-        // 先给定初始宽度让 SwiftUI 按 windowWidth 布局，再量高度
-        hosting.frame = NSRect(x: 0, y: 0, width: content.windowWidth, height: 200)
+        // 先给定初始宽度让 SwiftUI 按 width 布局，再量高度
+        hosting.frame = NSRect(x: 0, y: 0, width: width, height: 200)
         let size = hosting.fittingSize
-        // 宽高都跟内容走：窄图出窄弹窗，文本保持 380。
-        //
-        // 必须向上取整：fittingSize 常带小数，而 SwiftUI 会把固定宽的内容居中
-        // 放进承载视图，半像素的偏移会让左右竖边一侧被抗锯齿抹掉 —— 表现就是
-        // "边框中间断了一截"。
         win.setContentSize(NSSize(
-            width:  ceil(max(size.width,  content.windowWidth)),
+            width:  ceil(max(size.width,  width)),
             height: ceil(max(size.height, 60))
         ))
 
@@ -107,6 +134,12 @@ final class ToastManager {
         }
 
         scheduleAutoDismiss(win)
+    }
+
+    /// 关闭最顶部的通知（InfoToastView 的关闭按钮用）。
+    private func dismissTop() {
+        guard let top = windows.last else { return }
+        dismiss(top)
     }
 
     // MARK: - 布局

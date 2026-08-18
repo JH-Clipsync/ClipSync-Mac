@@ -113,27 +113,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 三个图标统一用相同的 pointSize / weight / 画布，
         // 连接中的箭头图标之前比气泡大一圈就是因为它的 SF Symbol 边界更大。
-        let cfg = NSImage.SymbolConfiguration(pointSize: 15, weight: .medium)
-        let sized = base.withSymbolConfiguration(cfg) ?? base
-        sized.isTemplate = true
-
-        let side: CGFloat = 18
-        let icon = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
-            let s = sized.size
-            let fit = min(rect.width / max(s.width, 1), rect.height / max(s.height, 1))
-            let w = s.width * fit
-            let h = s.height * fit
-            sized.draw(
-                in: NSRect(x: (rect.width - w) / 2, y: (rect.height - h) / 2, width: w, height: h),
-                from: .zero,
-                operation: .sourceOver,
-                fraction: 1.0
-            )
-            return true
-        }
+        // 直接使用系统标准菜单栏字号(17)，并交给 NSStatusItem 按标准宽度布局，
+        // 避免之前自绘 18×18 画布导致图标偏小、左右留白过大。
+        let cfg = NSImage.SymbolConfiguration(pointSize: 17, weight: .regular)
+        let icon = base.withSymbolConfiguration(cfg) ?? base
         icon.isTemplate = true
 
         btn.image = icon
+        btn.imagePosition = .imageOnly
+        btn.imageScaling = .scaleProportionallyDown
         btn.contentTintColor = nil
 
         NSLog("[ClipSync] 图标切换 → \(state.rawValue) (\(symbolName))")
@@ -182,6 +170,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .environmentObject(SettingsStore.shared)
             .environmentObject(WSClient.shared)
             .environmentObject(HistoryStore.shared)
+            .environmentObject(AppRouter.shared)
         win.contentView = NSHostingView(rootView: root)
 
         self.mainWindow = win

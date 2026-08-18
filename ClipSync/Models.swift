@@ -41,6 +41,7 @@ struct OnlineDevice: Codable, Identifiable, Equatable {
     var deviceID: String
     var role: String
     var platform: String?
+    var name: String?
     var ip: String
     var onlineAt: Int64
     var isSelf: Bool
@@ -50,6 +51,7 @@ struct OnlineDevice: Codable, Identifiable, Equatable {
         case deviceID = "device_id"
         case role
         case platform
+        case name
         case ip
         case onlineAt = "online_at"
         case isSelf = "self"
@@ -57,6 +59,12 @@ struct OnlineDevice: Codable, Identifiable, Equatable {
     }
 
     var id: String { deviceID }
+
+    /// 列表展示名：优先用户自定义名，否则平台+短ID
+    var displayName: String {
+        let n = (name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return n.isEmpty ? platformLabel : n
+    }
 
     /// 平台中文标签
     var platformLabel: String {

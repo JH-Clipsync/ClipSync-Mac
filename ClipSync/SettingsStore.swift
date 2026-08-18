@@ -56,6 +56,14 @@ final class SettingsStore: ObservableObject {
     @Published var autoSyncClipboard: Bool {
         didSet { UserDefaults.standard.set(autoSyncClipboard, forKey: "autoSyncClipboard") }
     }
+    /// 用户为本机自定义的设备名。
+    ///
+    /// 握手时优先用它；为空才 fallback 到系统主机名。
+    /// 这样用户在「在线设备」里给本机改名后，Mac 会记住这个名字，
+    /// 下次重连不会再用 `Host.current().localizedName` 把服务端的名字覆盖回去。
+    @Published var customDeviceName: String {
+        didSet { UserDefaults.standard.set(customDeviceName, forKey: "customDeviceName") }
+    }
 
     /// 实际用来派生密钥的密码。
     ///
@@ -89,5 +97,6 @@ final class SettingsStore: ObservableObject {
         e2eeEnabled = d.object(forKey: "e2eeEnabled") as? Bool ?? true
         showContent = d.object(forKey: "showContent") as? Bool ?? true
         autoSyncClipboard = d.object(forKey: "autoSyncClipboard") as? Bool ?? true
+        customDeviceName = d.string(forKey: "customDeviceName") ?? ""
     }
 }
