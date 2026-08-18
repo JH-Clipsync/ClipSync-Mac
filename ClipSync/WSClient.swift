@@ -471,6 +471,13 @@ final class WSClient: NSObject, ObservableObject {
         if let presence = decodePresence(data) {
             let newDevices = presence.payload.devices
             DispatchQueue.main.async {
+                // 本机名可能从其他端被修改：从在线列表找到本机，同步到机器级存储
+                if let selfDev = newDevices.first(where: { $0.deviceID == self.deviceID }) {
+                    let n = (selfDev.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !n.isEmpty && n != SettingsStore.shared.customDeviceName {
+                        SettingsStore.shared.customDeviceName = n
+                    }
+                }
                 // 在赋值前和旧列表做 diff，对其他设备的上下线弹通知。
                 // 首次拿到列表（旧为空）不弹，避免冷启动把所有在线设备误报为上线。
                 if !self.onlineDevices.isEmpty {

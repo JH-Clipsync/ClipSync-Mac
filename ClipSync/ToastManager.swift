@@ -18,6 +18,10 @@ final class ToastManager {
     private let margin: CGFloat = 14
     private let autoDismissSeconds: Double = 8
     private var dismissWork: [ObjectIdentifier: DispatchWorkItem] = [:]
+    /// 全局 ESC 监听：Toast 浮窗本身不可以成为 key（会激活 App），
+    /// 但用户按 ESC 时应关闭最顶部的 Toast。装一个本 App 范围的
+    /// local monitor，keyDown 是 ESC 就关掉，其他事件原样放行。
+    private var escapeMonitor: Any?
 
     /// 短时间去重
     private var lastSig = ""
@@ -65,6 +69,16 @@ final class ToastManager {
             },
             onCopyAll: {
                 ClipboardWriter.apply(payload: message.payload)
+            },
+            onPreviewImage: { [weak self, weak win] in
+                guard let self, let w = win else { return }
+                // 先关掉 Toast，再弹出大预览窗口
+                self.dismiss(w)
+                if let b64 = message.payload.data,
+                   let data = Data(base64Encoded: b64),
+                   let img = NSImage(data: data) {
+                    ImagePreviewWindows.show(image: img)
+                }
             },
             onClose: { [weak self, weak win] in
                 guard let self, let w = win else { return }
@@ -133,7 +147,29 @@ final class ToastManager {
             win.animator().alphaValue = 1.0
         }
 
+        installEscapeMonitorIfNeeded()
         scheduleAutoDismiss(win)
+    }
+
+    /// 首次有 Toast 显示时装上 ESC 监听；监听只在本 App 内生效，
+    /// 不会吃掉其他 App 的按键。
+    private func installEscapeMonitorIfNeeded() {
+        guard escapeMonitor == nil else { return }
+        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            // ESC：关掉最顶部的 Toast（栈顶），并吞掉事件避免传给下层控件
+            if event.keyCode == 53, let top = self.windows.last {
+                self.dismiss(top)
+                return nil
+            }
+            return event
+        }
+    }
+
+    private func removeEscapeMonitorIfNeeded() {
+        guard windows.isEmpty, let monitor = escapeMonitor else { return }
+        NSEvent.removeMonitor(monitor)
+        escapeMonitor = nil
     }
 
     /// 关闭最顶部的通知（InfoToastView 的关闭按钮用）。
@@ -185,6 +221,7 @@ final class ToastManager {
                 window.orderOut(nil)
                 self.windows.removeAll { $0 == window }
                 self.placeAll()
+                self.removeEscapeMonitorIfNeeded()
             }
         })
     }

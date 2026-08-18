@@ -17,6 +17,7 @@ struct ToastView: View {
     let extractedCode: String?
     let onCopyCode: () -> Void   // 只复制验证码
     let onCopyAll: () -> Void    // 复制全文/剪贴板整体
+    let onPreviewImage: () -> Void  // 图片消息：预览大图
     let onClose: () -> Void
     /// 点击弹窗内容区（非按钮区域）时：打开主窗口并跳到对应 Tab
     let onOpen: () -> Void
@@ -41,14 +42,15 @@ struct ToastView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            // 图片独占一整行，相对整个窗口左右居中，顶部多留白不挤标题
+            // 图片：固定卡片尺寸，内部等比缩放作为缩略图；
+            // 下方按钮区：复制 + 预览，跟文字消息的胶囊按钮风格一致。
             if isImage {
-                rowBody
-                    .padding(.top, 12)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                if extractedCode != nil {
-                    actionRow
+                VStack(alignment: .center, spacing: 8) {
+                    imageThumbnail
+                    imageActionRow
                 }
+                .padding(.top, 12)
+                .frame(maxWidth: .infinity, alignment: .center)
             }
         }
         .padding(.horizontal, 14)
@@ -98,27 +100,18 @@ struct ToastView: View {
         return NSImage(data: data)
     }
 
-    /// 按图片比例算显示尺寸：长边 260、宽边不超过 320，白卡随之包裹
-    private var imageDisplaySize: CGSize? {
-        guard let img = decodedImage else { return nil }
-        let w = img.size.width
-        let h = img.size.height
-        guard w > 0, h > 0 else { return nil }
-        let scale = min(260 / max(w, h), 320 / w, 1.0)
-        // 取整：尺寸带小数会让图片卡和弹窗宽度都落在半像素上，描边跟着被抹掉
-        return CGSize(width: (w * scale).rounded(), height: (h * scale).rounded())
-    }
+    /// 弹窗宽度：所有类型统一 360，图片卡片固定在内容区内居中，
+    /// 不再随图片比例变化 —— 小图小卡会让弹窗忽宽忽窄，多个 Toast
+    /// 上下堆叠时对不齐，视觉上是"跳动"的。
+    var windowWidth: CGFloat { 360 }
 
-    /// 弹窗宽度：文字固定 380；图片按显示宽 + 边距。
+    /// 缩略图卡片的固定尺寸。
     ///
-    /// 结果必须是整数，且要和窗口的 contentSize 完全一致 —— 只要两者差半个
-    /// 像素，SwiftUI 就会把内容居中偏移，一侧描边被抗锯齿摊没，看着就是边框断了。
-    var windowWidth: CGFloat {
-        if let s = imageDisplaySize {
-            return ceil(max(300, s.width + 20 + 28 + 10 + 28))
-        }
-        return 380
-    }
+    /// 16:9 的 280×158 能同时容下横图和竖图：
+    /// - 横图：长边贴边，短边 letterbox
+    /// - 竖图：短边贴边，长边 letterbox
+    /// 卡片高度固定，整个 Toast 高度就稳定了。
+    private let thumbSize = CGSize(width: 280, height: 158)
 
     // MARK: - subviews
 
@@ -270,48 +263,76 @@ struct ToastView: View {
 
     // MARK: - content helpers
 
-    /// 内容区：图片消息用浅灰卡片按图片实际比例包裹（小图小卡、长图窄卡，
-    /// 不再拉成满宽空白），其余显示文字
+    /// 内容区：图片消息不在这里渲染（见 imageThumbnail），其余显示文字
     @ViewBuilder
     private var rowBody: some View {
-        if let img = decodedImage, let s = imageDisplaySize {
-            VStack(spacing: 6) {
+        Text(bodyText)
+            .font(.system(size: 12))
+            .foregroundStyle(.primary.opacity(0.85))
+            .lineLimit(3)
+            .truncationMode(.tail)             // 末尾省略
+            .multilineTextAlignment(.leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // 让 Text 垂直方向按内容自撑，配合外层容器自适应高度
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// 图片缩略图卡片：固定尺寸，图片等比缩放，点击预览大图
+    @ViewBuilder
+    private var imageThumbnail: some View {
+        if let img = decodedImage {
+            ZStack {
+                RoundedRectangle(cornerRadius: ToastStyle.innerCornerRadius, style: .continuous)
+                    .fill(ToastStyle.imageCardFill)
                 Image(nsImage: img)
                     .resizable()
                     .scaledToFit()
-                    .frame(width: s.width, height: s.height)
                     .padding(10)
-                    .background(
-                        RoundedRectangle(cornerRadius: ToastStyle.innerCornerRadius, style: .continuous)
-                            .fill(ToastStyle.imageCardFill)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: ToastStyle.innerCornerRadius, style: .continuous)
-                            .strokeBorder(ToastStyle.innerBorderColor, lineWidth: 0.5)
-                    )
-                    .contentShape(RoundedRectangle(cornerRadius: ToastStyle.innerCornerRadius, style: .continuous))
-                    .onTapGesture { ImagePreviewWindows.show(image: img) }
-                    .help("点击预览大图")
-                HStack {
-                    Spacer()
-                    Text("\(Int(img.size.width)) × \(Int(img.size.height))")
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                }
-                .frame(width: s.width + 20)
             }
-            .frame(maxWidth: .infinity, alignment: .center)
+            .frame(width: thumbSize.width, height: thumbSize.height)
+            .overlay(
+                RoundedRectangle(cornerRadius: ToastStyle.innerCornerRadius, style: .continuous)
+                    .strokeBorder(ToastStyle.innerBorderColor, lineWidth: 0.5)
+            )
+            .overlay(alignment: .bottomTrailing) {
+                // 右下角浮一个放大镜角标，提示点击可预览
+                Image(systemName: "arrow.up.left.and.down.right.magnifyingglass")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6).padding(.vertical, 3)
+                    .background(Capsule().fill(.black.opacity(0.55)))
+                    .padding(8)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: ToastStyle.innerCornerRadius, style: .continuous))
+            .onTapGesture { onPreviewImage() }
+            .help("点击预览大图（Esc 关闭）")
         } else {
-            Text(bodyText)
-                .font(.system(size: 12))
-                .foregroundStyle(.primary.opacity(0.85))
-                .lineLimit(3)
-                .truncationMode(.tail)             // 末尾省略
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                // 让 Text 垂直方向按内容自撑，配合外层容器自适应高度
-                .fixedSize(horizontal: false, vertical: true)
+            RoundedRectangle(cornerRadius: ToastStyle.innerCornerRadius, style: .continuous)
+                .fill(ToastStyle.imageCardFill)
+                .frame(width: thumbSize.width, height: thumbSize.height)
+                .overlay(
+                    Image(systemName: "photo")
+                        .font(.system(size: 24))
+                        .foregroundStyle(.secondary)
+                )
         }
+    }
+
+    /// 图片消息的按钮行：复制 + 预览
+    @ViewBuilder
+    private var imageActionRow: some View {
+        HStack(spacing: 6) {
+            pill(title: allCopied ? "已复制 ✓" : "复制", primary: true, done: allCopied) {
+                onCopyAll()
+                allCopied = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { allCopied = false }
+            }
+            pill(title: "预览", primary: false) {
+                onPreviewImage()
+            }
+            Spacer()
+        }
+        .frame(width: thumbSize.width)
     }
 
     private var title: String {
