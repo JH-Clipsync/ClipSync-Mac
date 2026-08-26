@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import AppKit
 
 // ============================================================
 // WSClient：与服务器的 WebSocket 长连接
@@ -46,6 +47,11 @@ final class WSClient: NSObject, ObservableObject {
     private var session: URLSession?
     private var reconnectTimer: Timer?
     private var pingTimer: Timer?
+    /// 系统从睡眠唤醒后启动的看门狗：5s 内没收到 pong 就强制重连，
+    /// 处理睡眠期间 TCP 半开（路由/NAT 已断但本机还以为连着）的死连接。
+    private var wakeWatchdog: Timer?
+    /// 系统唤醒通知观察者
+    private var wakeObserver: NSObjectProtocol?
     private var isRunning = false
     private var currentServer = ""
     private var currentToken = ""
@@ -100,7 +106,28 @@ final class WSClient: NSObject, ObservableObject {
     private var connectingSince: Date?
     private let minConnectingDuration: TimeInterval = 1.5
 
-    private override init() { super.init() }
+    private override init() {
+        super.init()
+        // 系统唤醒（合盖睡眠后开盖、长时间空闲唤醒）后主动探活。
+        // 睡眠期间 URLSession 的 Ping/Pong 和定时器都会被冻结，旧 TCP 很可能
+        // 已被路由/NAT 回收但本机仍以为连着，靠服务端 60s 读超时才会发现。
+        // 这里监听唤醒，立即发一次 Ping，再加一个 5s 看门狗：
+        // Ping 若没在 5s 内成功（没收到 Pong），就判定为死连接并强制重连，
+        // 避免唤醒后长时间"假在线"、错过剪贴板。
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleSystemWake()
+        }
+    }
+
+    deinit {
+        if let wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+        }
+    }
 
     // MARK: - 连接控制
 
@@ -284,6 +311,7 @@ final class WSClient: NSObject, ObservableObject {
         // 清理旧连接资源（重连时复用）
         reconnectTimer?.invalidate(); reconnectTimer = nil
         pingTimer?.invalidate(); pingTimer = nil
+        wakeWatchdog?.invalidate(); wakeWatchdog = nil
         task?.cancel(with: .goingAway, reason: nil)
 
         // 重置握手状态码，让 delegate 抓本次的真实响应
@@ -348,6 +376,7 @@ final class WSClient: NSObject, ObservableObject {
         reconnectScheduled = false
         reconnectTimer?.invalidate(); reconnectTimer = nil
         pingTimer?.invalidate();      pingTimer = nil
+        wakeWatchdog?.invalidate();   wakeWatchdog = nil
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
         state = .disconnected
@@ -634,6 +663,7 @@ final class WSClient: NSObject, ObservableObject {
                       !self.wasKicked, !self.userInitiatedDisconnect else { return }
                 if let err = err {
                     NSLog("[WS] ⚠ ping 失败: \(err.localizedDescription)")
+                    self.wakeWatchdog?.invalidate(); self.wakeWatchdog = nil
                     self.handleTaskCompletion(error: err, source: "ping")
                 } else if self.state != .connected {
                     self.state = .connected
@@ -643,12 +673,48 @@ final class WSClient: NSObject, ObservableObject {
                     self.authRetryCount = 0
                     // 连上了，之前的失败提示就该消失
                     self.authError = nil
+                    // 唤醒看门狗在收到首个 pong 后取消，说明连接活着
+                    self.wakeWatchdog?.invalidate(); self.wakeWatchdog = nil
                     NSLog("[WS] 🟢 已连接服务器")
                     // 把未连接期间暂存的剪贴板内容补发出去
                     self.flushPendingClipboard()
+                } else {
+                    // 已连接状态下的周期 ping 成功，同样说明连接活着
+                    self.wakeWatchdog?.invalidate(); self.wakeWatchdog = nil
                 }
             }
         }
+    }
+
+    /// 系统从睡眠唤醒后调用：立刻 ping 一次探活，并启动看门狗。
+    @MainActor
+    private func handleSystemWake() {
+        // 用户主动断开 / 被踢 / 根本没在运行，无需探活
+        guard isRunning, !userInitiatedDisconnect, !wasKicked else { return }
+        NSLog("[WS] ⏰ 系统已唤醒，立即探活 WebSocket 连接")
+        // 重置心跳节奏，避免唤醒瞬间和旧的 20s 定时器叠加
+        pingTimer?.invalidate(); pingTimer = nil
+        wakeWatchdog?.invalidate(); wakeWatchdog = nil
+        sendPingOnce()
+        pingTimer = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
+            self?.sendPingOnce()
+        }
+        RunLoop.main.add(pingTimer!, forMode: .common)
+
+        // 5s 内没收到 pong（sendPingOnce 成功回调会取消本定时器），
+        // 视为睡眠期间连接已死。直接走重连流程：
+        // 注意不能只 cancel task —— cancel 会产生 NSURLErrorCancelled，
+        // 会被 classifyFailure 归为 .cancelled 而跳过重连，看门狗就失效了。
+        // 这里先标记本轮 task 失败已处理，再主动调 scheduleReconnect，
+        // 后续 didComplete(cancelled) 因 taskFailureHandled=true 被忽略。
+        wakeWatchdog = Timer.scheduledTimer(withTimeInterval: 5, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            NSLog("[WS] ⚠ 唤醒后 5s 未收到 pong，判定连接已失效，强制重连")
+            self.wakeWatchdog = nil
+            self.taskFailureHandled = true
+            self.scheduleReconnect(reason: "系统唤醒后连接无响应，正在重连…")
+        }
+        RunLoop.main.add(wakeWatchdog!, forMode: .common)
     }
 
     // MARK: - 失败分类与重连决策
