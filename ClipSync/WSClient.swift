@@ -722,8 +722,9 @@ final class WSClient: NSObject, ObservableObject {
             return true
         }
         let state = desc[kIOPSPowerSourceStateKey] as? String
-        // AC Power = 接电源；Battery Power = 电池
-        return state == kIOPSPowerSourceStateACPower
+        // 供电状态取值固定为 "AC Power"（接电源）或 "Battery Power"（电池），
+        // 对应常量 kIOPSPowerSourceStateACPower 未导出到 Swift，这里按头文件原值比较。
+        return state == "AC Power"
     }
 
     /// 主显示器当前是否处于休眠/黑屏状态。

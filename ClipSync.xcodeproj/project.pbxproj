@@ -10,7 +10,7 @@
 		0FFBDE010AFAD3867ECB0509 /* HistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 296D6961B9915AED652CD641 /* HistoryStore.swift */; };
 		1453304F57067B9FC2F50F15 /* ToastView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB8C7743EFF7F41BC6809591 /* ToastView.swift */; };
 		29077AC77B06B18A994A8D4A /* WSClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = F31A64A6C24C3BA7BE2F5F1A /* WSClient.swift */; };
-		A1B2C3D4E5F60718293A4B5C /* PowerAssertion.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5D /* PowerAssertion.swift */; };
+		FF00AA11BB22CC33DD44EE55 /* PowerAssertion.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF00AA11BB22CC33DD44EE56 /* PowerAssertion.swift */; };
 		30E2F6B003D955A8F7F4D1A7 /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31ADB70BAEDA4189C77EE9E9 /* SettingsStore.swift */; };
 		376495AAB21453A73A20E043 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDA17BC82E58AEE55A4E6B79 /* Models.swift */; };
 		482F06753707E7BE137C414B /* ToastStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB9BD95881A0BB7E4CA92FFF /* ToastStyle.swift */; };
@@ -58,7 +58,7 @@
 		EDA17BC82E58AEE55A4E6B79 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		F10A29A5E54C1017FCEDC327 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		F31A64A6C24C3BA7BE2F5F1A /* WSClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WSClient.swift; sourceTree = "<group>"; };
-		A1B2C3D4E5F60718293A4B5D /* PowerAssertion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PowerAssertion.swift; sourceTree = "<group>"; };
+		FF00AA11BB22CC33DD44EE56 /* PowerAssertion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PowerAssertion.swift; sourceTree = "<group>"; };
 		F5EFE53E454321AA92DC9CE1 /* RevealPasswordField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RevealPasswordField.swift; sourceTree = "<group>"; };
 		FB9BD95881A0BB7E4CA92FFF /* ToastStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToastStyle.swift; sourceTree = "<group>"; };
 		FFBEE31533A90D728F521B38 /* AuthClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthClient.swift; sourceTree = "<group>"; };
@@ -109,7 +109,7 @@
 				FB9BD95881A0BB7E4CA92FFF /* ToastStyle.swift */,
 				BB8C7743EFF7F41BC6809591 /* ToastView.swift */,
 				F31A64A6C24C3BA7BE2F5F1A /* WSClient.swift */,
-				A1B2C3D4E5F60718293A4B5D /* PowerAssertion.swift */,
+				FF00AA11BB22CC33DD44EE56 /* PowerAssertion.swift */,
 			);
 			path = ClipSync;
 			sourceTree = "<group>";
@@ -206,7 +206,7 @@
 				482F06753707E7BE137C414B /* ToastStyle.swift in Sources */,
 				1453304F57067B9FC2F50F15 /* ToastView.swift in Sources */,
 				29077AC77B06B18A994A8D4A /* WSClient.swift in Sources */,
-				A1B2C3D4E5F60718293A4B5C /* PowerAssertion.swift in Sources */,
+				FF00AA11BB22CC33DD44EE55 /* PowerAssertion.swift in Sources */,
 				EE71125A91C704A9557B5F48 /* main.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
