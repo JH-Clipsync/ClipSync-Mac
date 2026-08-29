@@ -721,10 +721,9 @@ final class WSClient: NSObject, ObservableObject {
                 .takeUnretainedValue() as? [String: Any] else {
             return true
         }
-        // kIOPS* 常量导入为 CFString，桥到 String 后再作字典 key / 比较
-        let state = desc[kIOPSPowerSourceStateKey as String] as? String
-        // AC = 接电源；Battery = 电池
-        return state == (kIOPSPowerSourceStateAC as String)
+        let state = desc[kIOPSPowerSourceStateKey] as? String
+        // AC Power = 接电源；Battery Power = 电池
+        return state == kIOPSPowerSourceStateACPower
     }
 
     /// 主显示器当前是否处于休眠/黑屏状态。
