@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import AppKit
+import IOKit.ps
 
 // ============================================================
 // WSClient：与服务器的 WebSocket 长连接
@@ -50,8 +51,13 @@ final class WSClient: NSObject, ObservableObject {
     /// 系统从睡眠唤醒后启动的看门狗：5s 内没收到 pong 就强制重连，
     /// 处理睡眠期间 TCP 半开（路由/NAT 已断但本机还以为连着）的死连接。
     private var wakeWatchdog: Timer?
-    /// 系统唤醒通知观察者
+    /// 系统唤醒通知观察者（didWake：电池+合盖 DarkWake 也会发）
     private var wakeObserver: NSObjectProtocol?
+    /// 屏幕唤醒通知观察者（screensDidWake：只有开盖/亮屏真唤醒才发）
+    private var screenWakeObserver: NSObjectProtocol?
+    /// 电池供电下进入 DarkWake（暗唤醒）时置位：抑制一切自动重连，
+    /// 直到真正开盖亮屏（screensDidWake）才解除。避免梦游式"自己上线又掉"。
+    private var suppressAutoReconnect = false
     private var isRunning = false
     private var currentServer = ""
     private var currentToken = ""
@@ -121,11 +127,23 @@ final class WSClient: NSObject, ObservableObject {
         ) { [weak self] _ in
             self?.handleSystemWake()
         }
+        // 屏幕唤醒（开盖/合盖后再开、真用户唤醒）才连：电池合盖 DarkWake 时屏幕不亮，
+        // 收不到这条通知，正好等开盖再连。
+        screenWakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.screensDidWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleScreenWake()
+        }
     }
 
     deinit {
         if let wakeObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+        }
+        if let screenWakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(screenWakeObserver)
         }
     }
 
@@ -273,6 +291,8 @@ final class WSClient: NSObject, ObservableObject {
         isRunning = true
         userInitiatedDisconnect = false
         wasKicked = false
+        // 显式发起连接（用户手动连接/登录/重连）时解除 DarkWake 抑制
+        suppressAutoReconnect = false
         authRetryCount = 0
         reconnectAttempts = 0
         hardFailureCount = 0
@@ -686,12 +706,78 @@ final class WSClient: NSObject, ObservableObject {
         }
     }
 
-    /// 系统从睡眠唤醒后调用：立刻 ping 一次探活，并启动看门狗。
+    // MARK: - 睡眠 / 唤醒（DarkWake 抑制）
+
+    /// 是否接通电源（AC）。读 IOPowerSources；无电池的台式机也视为 AC。
+    private var isOnACPower: Bool {
+        guard let blob = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
+              let sources = IOPSCopyPowerSourcesList(blob)?.takeRetainedValue() as? [CFTypeRef],
+              !sources.isEmpty else {
+            return true // 读不到（台式机/异常），按接通电源处理，不误抑制
+        }
+        guard let desc = IOPSGetPowerSourceDescription(blob, sources[0])?.takeUnretainedValue()
+                as? [String: Any] else {
+            return true
+        }
+        let state = desc[kIOPSPowerSourceStateKey] as? String
+        // AC = 接电源；Battery = 电池
+        return state == kIOPSPowerSourceStateAC
+    }
+
+    /// 主显示器当前是否处于休眠/黑屏状态。
+    /// DarkWake（合盖暗唤醒）时显示器是睡的；开盖亮屏的真唤醒显示器是醒的。
+    private var isMainDisplayAsleep: Bool {
+        CGDisplayIsAsleep(CGMainDisplayID()) != 0
+    }
+
+    /// 电池供电下的合盖 DarkWake：此时抑制自动重连，等开盖亮屏再连。
+    /// 返回 true 表示"这是该被静默掉的暗唤醒"。
+    @discardableResult
+    private func enterDarkWakeSuppressionIfNeeded(reason: String) -> Bool {
+        // 接电源时系统不深睡（有电源断言），正常处理唤醒
+        guard !isOnACPower else {
+            suppressAutoReconnect = false
+            return false
+        }
+        // 电池供电，但屏幕是醒的（用户正用着 / 盖子开着）→ 真唤醒，不抑制
+        guard isMainDisplayAsleep else {
+            suppressAutoReconnect = false
+            return false
+        }
+        // 电池 + 屏幕在睡 = 合盖 DarkWake：不探活、不重连，避免梦游式上下线。
+        if !suppressAutoReconnect {
+            suppressAutoReconnect = true
+            // 撤掉已排期的重连定时器和看门狗，防止 DarkWake 窗口里把连接重建起来
+            reconnectTimer?.invalidate(); reconnectTimer = nil
+            reconnectScheduled = false
+            wakeWatchdog?.invalidate(); wakeWatchdog = nil
+            NSLog("[WS] 🌙 \(reason)：电池供电且屏幕休眠，判定为合盖 DarkWake，静默不重连（等开盖再连）")
+        }
+        return true
+    }
+
+    /// 系统从睡眠唤醒（didWake）：电池合盖 DarkWake 与开盖真唤醒都会触发。
     @MainActor
     private func handleSystemWake() {
         // 用户主动断开 / 被踢 / 根本没在运行，无需探活
         guard isRunning, !userInitiatedDisconnect, !wasKicked else { return }
-        NSLog("[WS] ⏰ 系统已唤醒，立即探活 WebSocket 连接")
+        // 电池 + 合盖的暗唤醒：不重连，交给 handleScreenWake（开盖亮屏）处理
+        if enterDarkWakeSuppressionIfNeeded(reason: "系统暗唤醒") { return }
+        probeAfterWake(log: "系统已唤醒")
+    }
+
+    /// 屏幕真正点亮（screensDidWake）：开盖/亮屏的真用户唤醒，解除抑制并探活重连。
+    @MainActor
+    private func handleScreenWake() {
+        guard isRunning, !userInitiatedDisconnect, !wasKicked else { return }
+        suppressAutoReconnect = false
+        probeAfterWake(log: "屏幕已唤醒（开盖/亮屏）")
+    }
+
+    /// 唤醒后探活：立刻 ping 一次并启动看门狗；连接若已断则走正常重连。
+    @MainActor
+    private func probeAfterWake(log: String) {
+        NSLog("[WS] ⏰ \(log)，立即探活 WebSocket 连接")
         // 重置心跳节奏，避免唤醒瞬间和旧的 20s 定时器叠加
         pingTimer?.invalidate(); pingTimer = nil
         wakeWatchdog?.invalidate(); wakeWatchdog = nil
@@ -980,6 +1066,12 @@ final class WSClient: NSObject, ObservableObject {
                 NSLog("[WS] 🔴 被服务端踢下线，不自动重连")
                 return
             }
+            // 电池合盖 DarkWake 期间：不自动重连，等开盖亮屏（handleScreenWake）再连。
+            // 这样睡眠中的暗唤醒不会造成"梦游式"上下线。
+            if self.enterDarkWakeSuppressionIfNeeded(reason: "连接中断") {
+                NSLog("[WS] 🌙 DarkWake 期间连接中断，跳过重连，等开盖再连")
+                return
+            }
             // 本轮已经排过重连定时器，不再重复排期。
             // 否则 receive failure + ping failure + delegate close 会各触发一次，
             // 每次都把定时器重置回 3 秒，看起来像"一下重连好几次"。
@@ -1015,6 +1107,11 @@ final class WSClient: NSObject, ObservableObject {
             self.reconnectTimer?.invalidate()
             self.reconnectTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
                 guard let self, !self.userInitiatedDisconnect, !self.wasKicked else { return }
+                // 定时器排期后系统又进入电池合盖 DarkWake：取消本次重连，等开盖亮屏
+                if self.enterDarkWakeSuppressionIfNeeded(reason: "重连定时器触发") {
+                    NSLog("[WS] 🌙 重连定时器在 DarkWake 中触发，跳过本次重连")
+                    return
+                }
                 guard !server.isEmpty, !token.isEmpty else {
                     NSLog("[WS] ✗ 重连失败：server 或 token 为空")
                     self.reconnectScheduled = false
