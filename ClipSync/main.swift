@@ -17,6 +17,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSLog("[ClipSync] 阶段7 启动")
 
+        // 持有"阻止系统睡眠"断言：合盖/空闲也保持长连接在线（插电时有效，等价 caffeinate -s）。
+        // 不阻止显示器睡眠，屏幕照常熄灭省电。
+        PowerAssertion.shared.acquire()
+
         // 创建主菜单，让 ⌘Q / ⌘W / ⌘M 之类标准快捷键生效
         installMainMenu()
 
@@ -281,6 +285,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.windowsMenu = winMenu
 
         NSApp.mainMenu = main
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        // 退出时释放电源断言，系统恢复正常睡眠
+        PowerAssertion.shared.release()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
