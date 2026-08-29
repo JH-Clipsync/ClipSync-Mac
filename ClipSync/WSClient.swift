@@ -715,15 +715,16 @@ final class WSClient: NSObject, ObservableObject {
               !sources.isEmpty else {
             return true // 读不到（台式机/异常），按接通电源处理，不误抑制
         }
-        // IOPSGetPowerSourceDescription 遵循 Get 规则，直接返回受管 CFDictionary?，
-        // 与 Copy 系列不同，无需 takeRetainedValue/takeUnretainedValue。
-        guard let desc = IOPSGetPowerSourceDescription(blob, sources[0])
-                as? [String: Any] else {
+        // IOKit 的 IOPowerSources 头文件未做 CF 归属审核，Swift 对 Copy/Get 一律
+        // 导入为 Unmanaged：Copy 用 takeRetainedValue，Get 用 takeUnretainedValue。
+        guard let desc = IOPSGetPowerSourceDescription(blob, sources[0])?
+                .takeUnretainedValue() as? [String: Any] else {
             return true
         }
-        let state = desc[kIOPSPowerSourceStateKey] as? String
+        // kIOPS* 常量导入为 CFString，桥到 String 后再作字典 key / 比较
+        let state = desc[kIOPSPowerSourceStateKey as String] as? String
         // AC = 接电源；Battery = 电池
-        return state == kIOPSPowerSourceStateAC
+        return state == (kIOPSPowerSourceStateAC as String)
     }
 
     /// 主显示器当前是否处于休眠/黑屏状态。
