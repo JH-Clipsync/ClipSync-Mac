@@ -715,7 +715,9 @@ final class WSClient: NSObject, ObservableObject {
               !sources.isEmpty else {
             return true // 读不到（台式机/异常），按接通电源处理，不误抑制
         }
-        guard let desc = IOPSGetPowerSourceDescription(blob, sources[0])?.takeUnretainedValue()
+        // IOPSGetPowerSourceDescription 遵循 Get 规则，直接返回受管 CFDictionary?，
+        // 与 Copy 系列不同，无需 takeRetainedValue/takeUnretainedValue。
+        guard let desc = IOPSGetPowerSourceDescription(blob, sources[0])
                 as? [String: Any] else {
             return true
         }
