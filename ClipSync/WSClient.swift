@@ -631,12 +631,16 @@ final class WSClient: NSObject, ObservableObject {
     /// 对比新旧在线列表，对其他设备的上线/下线弹通知（已在主线程调用）。
     @MainActor
     private func notifyPresenceChanges(old: [OnlineDevice], new: [OnlineDevice]) {
-        let oldOthers = Dictionary(uniqueKeysWithValues: old
-            .filter { !$0.isSelf }
-            .map { ($0.deviceID, $0) })
-        let newOthers = Dictionary(uniqueKeysWithValues: new
-            .filter { !$0.isSelf }
-            .map { ($0.deviceID, $0) })
+        // 不能用 Dictionary(uniqueKeysWithValues:)：它在遇到重复键时触发 Swift
+        // 致命错误（EXC_BREAKPOINT / _assertionFailure），会直接让 App 崩溃。
+        // 服务端在设备快速重连时可能短暂广播同一 deviceID 的两条记录（旧连接
+        // Redis TTL 未过期、新连接又注册），此时 presence 里 deviceID 重复，
+        // uniqueKeysWithValues 必崩——表现为"重连风暴时 App 闪退"。
+        // 用 uniquingKeysWith: 容忍重复，冲突时保留任一条即可。
+        let oldOthers = Dictionary(old.filter { !$0.isSelf }
+            .map { ($0.deviceID, $0) }, uniquingKeysWith: { a, _ in a })
+        let newOthers = Dictionary(new.filter { !$0.isSelf }
+            .map { ($0.deviceID, $0) }, uniquingKeysWith: { a, _ in a })
 
         // 新上线：新列表里有、旧列表里没有
         for (id, dev) in newOthers where oldOthers[id] == nil {
