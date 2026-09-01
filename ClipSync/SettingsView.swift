@@ -196,14 +196,11 @@ struct SettingsView: View {
 
     // MARK: - 版本
 
-    /// 应用版本号：读 Info.plist 的 CFBundleShortVersionString（CI 打包时由 tag 注入），
-    /// 本地 Xcode 直接跑时取 plist 里的默认值；读不到给个兜底，避免显示空行。
+    /// 应用版本号：只读 CFBundleShortVersionString（CI 打包时由 tag 注入，如 2026.9.1.1）。
+    /// 不显示 CFBundleVersion（内部构建序号），它对用户无意义、还会变成"版本 (2)"这种困惑显示。
     private static var appVersion: String {
-        let info = Bundle.main.infoDictionary
-        let short = info?["CFBundleShortVersionString"] as? String ?? ""
-        let build = info?["CFBundleVersion"] as? String ?? ""
-        if short.isEmpty { return "未知" }
-        return build.isEmpty || build == "1" ? short : "\(short) (\(build))"
+        let short = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+        return short.isEmpty ? "未知" : short
     }
 
 }
