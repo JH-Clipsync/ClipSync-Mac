@@ -200,6 +200,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(it)
         }
         menu.addItem(.separator())
+        // 版本号行：禁用态（不可点），方便用户在菜单里直接确认当前运行的版本
+        let versionItem = NSMenuItem(
+            title: "ClipSync v\(Self.appVersion)",
+            action: nil, keyEquivalent: ""
+        )
+        versionItem.isEnabled = false
+        menu.addItem(versionItem)
         menu.addItem(NSMenuItem(title: "退出", action: #selector(quit), keyEquivalent: "q"))
 
         statusItem.menu = menu
@@ -215,6 +222,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .connecting:   return "🔄 连接中…"
         case .disconnected: return "⚠️ 未连接"
         }
+    }
+
+    /// 应用版本号：读 Info.plist 的 CFBundleShortVersionString（CI 打包时由 tag 注入）
+    private static var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "未知"
     }
 
     @objc func reconnect() {

@@ -29,6 +29,7 @@ struct SettingsView: View {
             }
 
             Section("关于") {
+                LabeledContent("版本", value: Self.appVersion)
                 LabeledContent("设备 ID", value: ws.deviceID)
                     .font(.system(.body, design: .monospaced))
                 Text("ClipSync · 短信验证码 / 剪贴板同步")
@@ -192,5 +193,17 @@ struct SettingsView: View {
     }
 
     // MARK: - 动作
+
+    // MARK: - 版本
+
+    /// 应用版本号：读 Info.plist 的 CFBundleShortVersionString（CI 打包时由 tag 注入），
+    /// 本地 Xcode 直接跑时取 plist 里的默认值；读不到给个兜底，避免显示空行。
+    private static var appVersion: String {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? ""
+        let build = info?["CFBundleVersion"] as? String ?? ""
+        if short.isEmpty { return "未知" }
+        return build.isEmpty || build == "1" ? short : "\(short) (\(build))"
+    }
 
 }

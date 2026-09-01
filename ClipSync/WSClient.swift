@@ -244,7 +244,10 @@ final class WSClient: NSObject, ObservableObject {
             )
             settings.token = session.token
             NSLog("[WS] 🔑 重新登录成功，继续连接")
-            start(server: server, token: session.token)
+            // 必须把 caps 带上：start 的 caps 参数默认空串，
+            // 不传会导致 currentCaps 被清空，之后所有静默重连都上报空能力，
+            // 服务端在线列表里本机的「剪贴板/短信/自动接收」标签会全部变灰。
+            start(server: server, token: session.token, caps: capsString(settings))
         } catch let error as AuthError {
             state = .disconnected
             connectingSince = nil
@@ -769,12 +772,26 @@ final class WSClient: NSObject, ObservableObject {
         probeAfterWake(log: "系统已唤醒")
     }
 
-    /// 屏幕真正点亮（screensDidWake）：开盖/亮屏的真用户唤醒，解除抑制并探活重连。
+    /// 屏幕真正点亮（screensDidWake）：开盖/亮屏/解锁/屏保停止都会触发。
     @MainActor
     private func handleScreenWake() {
         guard isRunning, !userInitiatedDisconnect, !wasKicked else { return }
-        suppressAutoReconnect = false
-        probeAfterWake(log: "屏幕已唤醒（开盖/亮屏）")
+        // 仅在刚从合盖 DarkWake 抑制中恢复时才探活 + 看门狗：
+        // 那时系统经历过真睡眠，旧 TCP 大概率已被回收，必须主动验证。
+        if suppressAutoReconnect {
+            suppressAutoReconnect = false
+            probeAfterWake(log: "开盖亮屏（从睡眠中恢复）")
+            return
+        }
+        // 非睡眠场景的亮屏（息屏时间到自动黑屏后解锁、屏保退出、切屏幕等），
+        // 系统本身没睡、TCP 一直活着，20s 心跳也照常跑。
+        // 这里绝不能再起 5s 强制重连看门狗：pong 回调稍有延迟就会误杀正常连接，
+        // 表现为"莫名其妙总在重连"。若此刻确实处于未连接状态（且没有踢线/手动断开），
+        // 补排一次重连兜底；连接中/已连接都不要打断。
+        if !reconnectScheduled && state == .disconnected {
+            NSLog("[WS] ⏰ 亮屏但连接未就绪，补排一次重连")
+            scheduleReconnect(reason: "亮屏后检查连接")
+        }
     }
 
     /// 唤醒后探活：立刻 ping 一次并启动看门狗；连接若已断则走正常重连。
