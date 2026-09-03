@@ -23,6 +23,14 @@ final class WSClient: NSObject, ObservableObject {
     /// 当前账号下的在线设备列表（服务端 presence 推送实时更新）
     @Published var onlineDevices: [OnlineDevice] = []
 
+    /// 最近一次向用户弹过"上/下线"通知的设备及其时间（deviceID → 时间戳）。
+    /// 设备快速重连（半开看门狗重建、网络抖动）会在几秒内连发 下线→上线 两条
+    /// presence，若逐条弹通知就会出现"自己在那上下线"的骚扰。这里做防抖：
+    /// 同一设备在冷却窗口内的重复上线/掉线通知合并掉。
+    private var lastPresenceToastAt: [String: Date] = [:]
+    /// 上/下线通知防抖窗口：窗口内同设备同方向重复通知只弹一次
+    private let presenceToastCooldown: TimeInterval = 120
+
     /// 最近一次连接被服务端拒绝的原因（token 失效时提示用户重新登录）
     @Published var authError: String?
 
@@ -518,6 +526,15 @@ final class WSClient: NSObject, ObservableObject {
             return
         }
 
+        // 应用层心跳帧（服务端对 {"type":"ping"} 单播回 {"type":"pong"}）只用于链路探活，
+        // 不进业务流、不写历史、不弹通知；必须在整体 decode 前拦掉，否则空 payload
+        // 会被当成业务消息弹出空白通知。
+        if let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let frameType = raw["type"] as? String,
+           frameType == "pong" || frameType == "ping" {
+            return
+        }
+
         // presence 消息的 payload 是 {"devices":[...]}，跟业务消息的 MessagePayload 结构不同，
         // 在整体 decode 成 SyncMessage 之前先单独解析并更新在线设备列表。
         if let presence = decodePresence(data) {
@@ -644,6 +661,7 @@ final class WSClient: NSObject, ObservableObject {
 
         // 新上线：新列表里有、旧列表里没有
         for (id, dev) in newOthers where oldOthers[id] == nil {
+            guard shouldToastPresence(deviceID: id, direction: "up") else { continue }
             ToastManager.shared.showInfo(
                 title: "设备上线",
                 body: Self.presenceBody(dev, action: "已连接"),
@@ -653,6 +671,7 @@ final class WSClient: NSObject, ObservableObject {
         }
         // 刚下线：旧列表里有、新列表里没有
         for (id, dev) in oldOthers where newOthers[id] == nil {
+            guard shouldToastPresence(deviceID: id, direction: "down") else { continue }
             ToastManager.shared.showInfo(
                 title: "设备下线",
                 body: Self.presenceBody(dev, action: "已断开"),
@@ -660,6 +679,24 @@ final class WSClient: NSObject, ObservableObject {
                 tint: .secondary
             )
         }
+    }
+
+    /// 上/下线通知防抖：同一设备同一方向在冷却窗口内只弹一次，
+    /// 屏蔽快速重连/网络抖动导致的"自己反复上下线"骚扰。返回 true 表示本次应弹。
+    private func shouldToastPresence(deviceID: String, direction: String) -> Bool {
+        let key = "\(deviceID)#\(direction)"
+        let now = Date()
+        if let last = lastPresenceToastAt[key], now.timeIntervalSince(last) < presenceToastCooldown {
+            return false
+        }
+        lastPresenceToastAt[key] = now
+        // 顺带清理过期记录，避免字典无限增长
+        if lastPresenceToastAt.count > 64 {
+            lastPresenceToastAt = lastPresenceToastAt.filter {
+                now.timeIntervalSince($0.value) < presenceToastCooldown
+            }
+        }
+        return true
     }
 
     /// 构造上下线通知正文：有自定义名就显示「名字 · 平台（短ID）」，

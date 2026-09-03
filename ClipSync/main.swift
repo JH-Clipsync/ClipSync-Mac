@@ -187,7 +187,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func showMenu() {
         let ws = WSClient.shared
         let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: statusTitle(ws.state), action: nil, keyEquivalent: ""))
+        // 状态行（带服务器地址）：让用户在菜单里也能直接看到连的是哪里
+        let statusItem0 = NSMenuItem(title: statusTitle(ws.state), action: nil, keyEquivalent: "")
+        statusItem0.isEnabled = false   // 灰显表示"这是信息，不是按钮"
+        menu.addItem(statusItem0)
+        let addr = ServerAddress.normalize(SettingsStore.shared.serverURL)
+        if !addr.isEmpty {
+            // 服务器地址行：enabled=true 让菜单支持 ⌘C 复制；title 就是地址本身
+            let addrItem = NSMenuItem(title: addr, action: nil, keyEquivalent: "")
+            menu.addItem(addrItem)
+        }
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "打开主窗口", action: #selector(openMainWindow), keyEquivalent: ""))
         if ws.state == .disconnected {

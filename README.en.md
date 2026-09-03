@@ -17,6 +17,14 @@ Core scenario: **When you receive a verification code or copy something on your 
 
 No third-party push services are involved — all traffic goes through your own WebSocket relay, with optional end-to-end encryption, so privacy stays under your control.
 
+## 🌐 Public Server (Pre-configured)
+
+The default `serverURL` in this client is **`wss://www.95qw.com`**. After installation, **no setup is required** — just register an account and you're in.
+
+- **Self-hosted instance?** Open *Settings → Server* and change it to `wss://your-domain` (no path; the reverse proxy handles the path).
+- **Fully offline / LAN?** The server is a single Go binary / Docker container. See the [ClipSync-Server deployment guide](https://github.com/JH-Clipsync/ClipSync-Server#-reverse-proxy--path-planning).
+
+
 > System requirements: **macOS 14 (Sonoma) or later** · Development tools: **Xcode 16+** · Language: **Swift 5.10**
 
 ---
@@ -31,7 +39,7 @@ No third-party push services are involved — all traffic goes through your own 
 | 🔔 **Toast notification banners** | Floating notifications at the top-right of the screen for device online/offline events, automatic verification-code recognition, and one-click copy — without stealing focus. |
 | 📩 **Smart verification-code recognition** | Automatically extracts verification codes from incoming text/SMS via regex and offers a "Copy code" button inside the Toast. |
 | 📋 **Bidirectional clipboard sync** | Two-way sync for text and PNG images; local changes are uploaded with debouncing, while remote content is written back to the clipboard according to its MIME type. |
-| 🍎 **Menu bar resident** | A `MenuBarExtra` status-bar icon: green = connected, yellow = connecting, red = disconnected, gray = disabled; click to open the quick panel. |
+| 🍎 **Menu bar resident** | A `MenuBarExtra` status-bar icon: green = connected, yellow = connecting, red = disconnected, gray = disabled; click to open the quick panel. **The server-address line is selectable and supports ⌘C; the address is also shown in the menu-bar dropdown.** |
 | 🧭 **First-launch onboarding** | A guided wizard walks you through server address, account credentials, end-to-end encryption, and clipboard/accessibility permissions. |
 | ⚙️ **Settings page** | Server address, account, encryption toggle / sync password, auto-upload clipboard, auto-apply remote content, and launch at login. |
 | 🪟 **Permission guidance** | Built-in detection and one-click jump to System Settings for clipboard access (Automation), Accessibility, and Notifications. |

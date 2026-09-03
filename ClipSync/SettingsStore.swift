@@ -89,7 +89,7 @@ final class SettingsStore: ObservableObject {
 
     private init() {
         let d = UserDefaults.standard
-        serverURL = d.string(forKey: "serverURL") ?? "ws://localhost:8080"
+        serverURL = d.string(forKey: "serverURL") ?? "wss://www.95qw.com"
         username = d.string(forKey: "username") ?? ""
         password = d.string(forKey: "password") ?? ""
         token = d.string(forKey: "token") ?? ""

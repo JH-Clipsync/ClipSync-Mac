@@ -133,18 +133,36 @@ struct HomeView: View {
                 Text(statusText)
                     .font(.system(size: 17, weight: .semibold))
                 // 显示规范化后的地址，让用户看到程序实际连的是哪里
-                Text(ServerAddress.normalize(settings.serverURL).isEmpty
-                     ? "未填写服务器地址"
-                     : ServerAddress.normalize(settings.serverURL))
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                // 用 HStack 把"地址"和"复制按钮"放一起：地址可拖选复制，按钮一键复制到剪贴板
+                HStack(spacing: 6) {
+                    Text(ServerAddress.normalize(settings.serverURL).isEmpty
+                         ? "未填写服务器地址"
+                         : ServerAddress.normalize(settings.serverURL))
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)   // macOS 12+：允许光标拖选 + ⌘C
+                        .help("可拖选复制，或点右侧「复制」按钮")
+                    Button {
+                        let addr = ServerAddress.normalize(settings.serverURL)
+                        let pb = NSPasteboard.general
+                        pb.clearContents()
+                        pb.setString(addr, forType: .string)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                            .font(.system(size: 11))
+                    }
+                    .buttonStyle(.borderless)
+                    .help("复制服务器地址")
+                    .disabled(ServerAddress.normalize(settings.serverURL).isEmpty)
+                }
                 if let authError = ws.authError {
                     Text(authError)
                         .font(.system(size: 11))
                         .foregroundStyle(.orange)
                         .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
                 }
             }
             Spacer()
