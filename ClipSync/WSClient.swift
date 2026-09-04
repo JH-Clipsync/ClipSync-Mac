@@ -33,8 +33,9 @@ final class WSClient: NSObject, ObservableObject {
     private let presenceToastCooldown: TimeInterval = 120
     /// 下线宽限：设备消失后不立刻弹"下线"，等待此时长；若设备在此期间回来，
     /// 下线取消、上线也不弹（App 重启顶替/网络抖动/Doze 唤醒等短断连完全静默）。
-    /// 只有真离线（关机/离开网络）超过此时长才提示。
-    private let offlineGrace: TimeInterval = 10
+    /// 只取 5s：旧连接关闭→新连接重连的 gap 通常 1~4s，覆盖秒回足够，
+    /// 又不让真实下线（关机/离开网络）提示明显滞后。
+    private let offlineGrace: TimeInterval = 5
     /// 宽限期中的设备：deviceID → 待触发的 Timer（fire 后才真正弹下线）。
     /// 上线时若设备在此字典里，说明是短暂断线后恢复，取出 Timer 取消、静默处理。
     private var pendingOfflineTimers: [String: Timer] = [:]
