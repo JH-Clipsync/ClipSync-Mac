@@ -24,12 +24,20 @@ final class WSClient: NSObject, ObservableObject {
     @Published var onlineDevices: [OnlineDevice] = []
 
     /// 最近一次向用户弹过"上/下线"通知的设备及其时间（deviceID → 时间戳）。
-    /// 设备快速重连（半开看门狗重建、网络抖动）会在几秒内连发 下线→上线 两条
-    /// presence，若逐条弹通知就会出现"自己在那上下线"的骚扰。这里做防抖：
-    /// 同一设备在冷却窗口内的重复上线/掉线通知合并掉。
+    /// 设备快速重连（半开看门狗重建、App 重启顶替旧连接、网络抖动、Doze 唤醒）
+    /// 会在很短时间内连发 下线→上线 两条 presence（App 重启顶替时甚至只有上线），
+    /// 若逐条弹通知就会出现"莫名其妙自己上线"的骚扰。这里做防抖：同一设备无论
+    /// 上/下线，在冷却窗口内只提示一次，真正离线很久后再回来才会再弹。
     private var lastPresenceToastAt: [String: Date] = [:]
-    /// 上/下线通知防抖窗口：窗口内同设备同方向重复通知只弹一次
+    /// 上/下线通知防抖窗口：窗口内同设备的任何方向通知只弹一次
     private let presenceToastCooldown: TimeInterval = 120
+    /// 下线宽限：设备消失后不立刻弹"下线"，等待此时长；若设备在此期间回来，
+    /// 下线取消、上线也不弹（App 重启顶替/网络抖动/Doze 唤醒等短断连完全静默）。
+    /// 只有真离线（关机/离开网络）超过此时长才提示。
+    private let offlineGrace: TimeInterval = 10
+    /// 宽限期中的设备：deviceID → 待触发的 Timer（fire 后才真正弹下线）。
+    /// 上线时若设备在此字典里，说明是短暂断线后恢复，取出 Timer 取消、静默处理。
+    private var pendingOfflineTimers: [String: Timer] = [:]
 
     /// 最近一次连接被服务端拒绝的原因（token 失效时提示用户重新登录）
     @Published var authError: String?
@@ -661,7 +669,13 @@ final class WSClient: NSObject, ObservableObject {
 
         // 新上线：新列表里有、旧列表里没有
         for (id, dev) in newOthers where oldOthers[id] == nil {
-            guard shouldToastPresence(deviceID: id, direction: "up") else { continue }
+            // 设备在"下线宽限期"内回来了 → 取消待发的下线通知，本次上线也静默：
+            // 这是 App 重启/网络抖动/Doze 唤醒导致的短断连，不该打扰用户。
+            if let t = pendingOfflineTimers.removeValue(forKey: id) {
+                t.invalidate()
+                continue
+            }
+            guard shouldToastPresence(deviceID: id) else { continue }
             ToastManager.shared.showInfo(
                 title: "设备上线",
                 body: Self.presenceBody(dev, action: "已连接"),
@@ -669,22 +683,32 @@ final class WSClient: NSObject, ObservableObject {
                 tint: .green
             )
         }
-        // 刚下线：旧列表里有、新列表里没有
+        // 刚下线：旧列表里有、新列表里没有。不立刻弹——进入 offlineGrace 宽限期，
+        // 期间设备回来则静默（见上）；宽限期结束仍未回来才真正提示"已断开"。
         for (id, dev) in oldOthers where newOthers[id] == nil {
-            guard shouldToastPresence(deviceID: id, direction: "down") else { continue }
-            ToastManager.shared.showInfo(
-                title: "设备下线",
-                body: Self.presenceBody(dev, action: "已断开"),
-                icon: dev.platformIcon,
-                tint: .secondary
-            )
+            // 已有待发下线（理论上不会发生，防御性处理）：重置计时
+            pendingOfflineTimers[id]?.invalidate()
+            let timer = Timer.scheduledTimer(withTimeInterval: offlineGrace, repeats: false) { [weak self] _ in
+                guard let self else { return }
+                self.pendingOfflineTimers.removeValue(forKey: id)
+                // 宽限期结束时设备确实仍不在线，且通过冷却去抖，才弹
+                guard self.shouldToastPresence(deviceID: id) else { return }
+                ToastManager.shared.showInfo(
+                    title: "设备下线",
+                    body: Self.presenceBody(dev, action: "已断开"),
+                    icon: dev.platformIcon,
+                    tint: .secondary
+                )
+            }
+            pendingOfflineTimers[id] = timer
         }
     }
 
-    /// 上/下线通知防抖：同一设备同一方向在冷却窗口内只弹一次，
-    /// 屏蔽快速重连/网络抖动导致的"自己反复上下线"骚扰。返回 true 表示本次应弹。
-    private func shouldToastPresence(deviceID: String, direction: String) -> Bool {
-        let key = "\(deviceID)#\(direction)"
+    /// 上/下线通知防抖：同一设备（不分上线/下线方向）在冷却窗口内只弹一次，
+    /// 屏蔽快速重连/App 重启顶替/网络抖动/Doze 唤醒导致的"自己反复上下线"骚扰。
+    /// 返回 true 表示本次应弹。
+    private func shouldToastPresence(deviceID: String) -> Bool {
+        let key = deviceID
         let now = Date()
         if let last = lastPresenceToastAt[key], now.timeIntervalSince(last) < presenceToastCooldown {
             return false
