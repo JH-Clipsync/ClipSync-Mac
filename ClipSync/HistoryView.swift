@@ -365,9 +365,12 @@ enum ImagePreviewWindows {
             backing: .buffered,
             defer: false
         )
-        let view = ImagePreviewView(image: image, filePath: filePath) { [weak win] in
-            win?.close()
-        }
+        let view = ImagePreviewView(
+            image: image,
+            filePath: filePath,
+            hostWindow: win,
+            onClose: { [weak win] in win?.close() }
+        )
         let hosting = NSHostingView(rootView: view)
 
         win.title = "图片预览"
@@ -451,6 +454,8 @@ private final class TitlebarAccessoryController: NSTitlebarAccessoryViewControll
 private struct ImagePreviewView: View {
     let image: NSImage
     let filePath: String
+    /// 承载自己的预览面板（保存面板以 sheet 挂到它上面）
+    let hostWindow: NSWindow?
     /// 关闭自己所属的面板（不能用 NSApp.keyWindow，App 未激活时会误关主窗口）
     let onClose: () -> Void
 
@@ -498,31 +503,80 @@ private struct ImagePreviewView: View {
         }
     }
 
+    /// 上次保存目录的持久化 key（用路径字符串，本 App 未沙盒，直接可用）
+    private static let lastSaveDirKey = "ImagePreview.lastSaveDirectory"
+
     private func saveImage() {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png, .jpeg]
-        panel.directoryURL = FileManager.default.urls(
+        // 默认目录：上次保存的位置 → 下载目录
+        let fallback = FileManager.default.urls(
             for: .downloadsDirectory, in: .userDomainMask
         ).first
+        if let last = UserDefaults.standard.string(forKey: Self.lastSaveDirKey) {
+            let lastURL = URL(fileURLWithPath: last)
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: last, isDirectory: &isDir), isDir.boolValue {
+                panel.directoryURL = lastURL
+            } else {
+                panel.directoryURL = fallback
+            }
+        } else {
+            panel.directoryURL = fallback
+        }
         let stamp = DateFormatter()
         stamp.dateFormat = "yyyyMMdd_HHmmss"
         panel.nameFieldStringValue = "ClipSync_\(stamp.string(from: Date())).png"
         panel.canCreateDirectories = true
-        panel.begin { resp in
-            guard resp == .OK, let url = panel.url else { return }
-            let rep = NSBitmapImageRep(data: image.tiffRepresentation ?? Data())
-            let ext = url.pathExtension.lowercased()
-            let asJpeg = ext == "jpg" || ext == "jpeg"
-            let data = rep?.representation(
-                using: asJpeg ? .jpeg : .png,
-                properties: asJpeg ? [.compressionFactor: 0.9] : [:]
-            )
-            do {
-                try data?.write(to: url, options: .atomic)
-            } catch {
-                let alert = NSAlert()
-                alert.messageText = "保存失败"
-                alert.informativeText = error.localizedDescription
+        // 中文化面板文案（系统按钮/标签还依赖 CFBundleDevelopmentRegion=zh-Hans）
+        panel.title = "保存图片"
+        panel.message = "选择图片保存位置"
+        panel.prompt = "保存"
+
+        // 从 Toast 打开预览时 App 处于未激活状态（菜单栏常驻应用），
+        // NSSavePanel 在非激活 App 里无法成为 key，面板上的按钮全部点不动。
+        // 先把 App 激活，并以 sheet 形式挂到预览窗上，交互才能正常送达。
+        NSApp.activate(ignoringOtherApps: true)
+        hostWindow?.makeKeyAndOrderFront(nil)
+
+        let present: () -> Void = {
+            if let host = hostWindow {
+                panel.beginSheetModal(for: host) { resp in
+                    handleSaveResponse(resp, panel: panel)
+                }
+            } else {
+                panel.begin { resp in
+                    handleSaveResponse(resp, panel: panel)
+                }
+            }
+        }
+        // 等激活切换完成再弹，避免首帧面板仍拿不到 key
+        DispatchQueue.main.async(execute: present)
+    }
+
+    private func handleSaveResponse(_ resp: NSApplication.ModalResponse, panel: NSSavePanel) {
+        guard resp == .OK, let url = panel.url else { return }
+        let rep = NSBitmapImageRep(data: image.tiffRepresentation ?? Data())
+        let ext = url.pathExtension.lowercased()
+        let asJpeg = ext == "jpg" || ext == "jpeg"
+        let data = rep?.representation(
+            using: asJpeg ? .jpeg : .png,
+            properties: asJpeg ? [.compressionFactor: 0.9] : [:]
+        )
+        do {
+            try data?.write(to: url, options: .atomic)
+            // 记住本次保存目录，下次直接定位到这里
+            UserDefaults.standard.set(url.deletingLastPathComponent().path,
+                                      forKey: Self.lastSaveDirKey)
+        } catch {
+            NSApp.activate(ignoringOtherApps: true)
+            let alert = NSAlert()
+            alert.messageText = "保存失败"
+            alert.informativeText = error.localizedDescription
+            alert.addButton(withTitle: "好")
+            if let host = hostWindow {
+                alert.beginSheetModal(for: host)
+            } else {
                 alert.runModal()
             }
         }

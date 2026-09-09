@@ -2,6 +2,7 @@ name: ClipSync
 options:
   deploymentTarget:
     macOS: "14.0"
+  developmentLanguage: zh-Hans
 targets:
   ClipSync:
     type: application

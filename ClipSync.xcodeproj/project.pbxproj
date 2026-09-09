@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AABF0101000000000000A001 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = AABF0102000000000000A002 /* Localizable.strings */; };
 		0FFBDE010AFAD3867ECB0509 /* HistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 296D6961B9915AED652CD641 /* HistoryStore.swift */; };
 		1453304F57067B9FC2F50F15 /* ToastView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB8C7743EFF7F41BC6809591 /* ToastView.swift */; };
 		29077AC77B06B18A994A8D4A /* WSClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = F31A64A6C24C3BA7BE2F5F1A /* WSClient.swift */; };
@@ -35,6 +36,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		AABF0102000000000000A002 /* Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = Localizable.strings; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		296D6961B9915AED652CD641 /* HistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryStore.swift; sourceTree = "<group>"; };
 		2C2899860AE7B4FEFDF20CC1 /* ServerAddress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerAddress.swift; sourceTree = "<group>"; };
 		31ADB70BAEDA4189C77EE9E9 /* SettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStore.swift; sourceTree = "<group>"; };
@@ -85,6 +87,7 @@
 			isa = PBXGroup;
 			children = (
 				ED838D6851172B5669A1D8C1 /* Assets.xcassets */,
+				AABF0102000000000000A002 /* Localizable.strings */,
 				FFBEE31533A90D728F521B38 /* AuthClient.swift */,
 				80079126FF9BA0FBBC1944AC /* ClipboardMonitor.swift */,
 				6774F5BDA203DE2CE3CAE378 /* ClipboardWriter.swift */,
@@ -150,7 +153,7 @@
 				};
 			};
 			buildConfigurationList = 3128A20FF59D72CA55099579 /* Build configuration list for PBXProject "ClipSync" */;
-			developmentRegion = en;
+			developmentRegion = "zh-Hans";
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				Base,
@@ -174,6 +177,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				53447D2859A6B14EDC992599 /* Assets.xcassets in Resources */,
+				AABF0101000000000000A001 /* Localizable.strings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
