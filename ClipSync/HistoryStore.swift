@@ -47,12 +47,25 @@ final class HistoryStore: ObservableObject {
 
     // MARK: - 增
 
-    /// 追加一条消息；已存在（同 id）则替换到最前
+    /// 追加一条消息；已存在（同 id）则按完整度决定是否替换到最前。
+    /// 完整度口径与 ToastManager 的 id 去重共用 SyncMessage.isMoreComplete，
+    /// 避免打码帧晚于明文帧到达时把历史里的明文降级掉。
     func append(_ msg: SyncMessage) {
         DispatchQueue.main.async {
-            // 去重：如果同 id 已存在，先移除
-            self.messages.removeAll { $0.id == msg.id }
-            self.messages.insert(msg, at: 0)
+            if !msg.id.isEmpty,
+               let index = self.messages.firstIndex(where: { $0.id == msg.id }) {
+                let existing = self.messages[index]
+                // 内容相同 → 维持原有「替换并置顶」；后到帧不更完整 → 原样保留、不降级
+                if msg.payload != existing.payload, !msg.isMoreComplete(than: existing) {
+                    return
+                }
+                self.messages.remove(at: index)
+                self.messages.insert(msg, at: 0)
+            } else {
+                // 无 id / 新 id：保持原 upsert 行为不变
+                self.messages.removeAll { $0.id == msg.id }
+                self.messages.insert(msg, at: 0)
+            }
             // 裁剪
             if self.messages.count > self.maxCount {
                 self.messages.removeLast(self.messages.count - self.maxCount)
